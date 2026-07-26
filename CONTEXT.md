@@ -25,8 +25,20 @@ An Entity's identity handle — a canonical, normalized string emitted by Enrich
 _Avoid_: Id, slug (the id is the database's; the Natural Key is the domain's)
 
 **Resolution Required**:
-The state of a Raw Entry whose Enrichment failed for a reason retrying cannot fix — unparseable model output, oversized entry, irreducible type ambiguity — and which now awaits a human decision. Never retried automatically; the counterpart to a transient failure, which is retried silently and never surfaced. Every Raw Entry is therefore either progressing or Resolution Required; it is never quietly stuck.
+The state of a Raw Entry whose Enrichment failed for a reason retrying cannot fix — unparseable model output, oversized entry, irreducible type ambiguity — and which now awaits a human decision. Never retried automatically; the counterpart to a transient failure, which is retried silently and never surfaced. Every Raw Entry is therefore either progressing or Resolution Required; it is never quietly stuck. Resolved in exactly three ways: retried (after the cause is fixed), given a Type Override, or Tombstoned.
 _Avoid_: Failed (a transient failure is not Resolution Required), error
+
+**Type Override**:
+A human-supplied classification recorded against a Raw Entry to settle an ambiguity Enrichment could not. Durable **input** to Enrichment, not derived output — so it survives a full Enrichment Run and the Entity remains fully derived. Applies as a tie-break only: it decides extractions whose confidence falls below threshold and leaves confidently-classified extractions from the same entry alone. Never a blanket relabel of the entry, since one Raw Entry may yield many Entities.
+_Avoid_: Manual entity edit (there is no such thing — see Entity), forced type
+
+**Tombstone**:
+A Raw Entry whose content has been deliberately dropped — text, context and embedding nulled — while its identity, capture metadata and audit trail are retained. The outcome of deciding a Resolution Required entry can never be processed: too large for the enrichment model, or content the classifier cannot parse. Excluded from every Enrichment Run and from raw search by virtue of having no text. **Not a retraction**: it reaches only entries Enrichment could not process, never a mis-captured one, which enriches perfectly well.
+_Avoid_: Delete (the row and its history remain), skip (that is the action; this is the result)
+
+**Derivation Epoch**:
+The span since the current full Enrichment Run began — the period over which the present Entity layer was derived under one set of rules (prompt, entity-type definitions, models). The default window for schema-governance review, because a full re-run regenerates every Type Suggestion, so counts spanning epochs double-count and make a fixed type boundary look unfixed.
+_Avoid_: Generation, version
 
 ### Entity Types
 
