@@ -5,7 +5,7 @@ A personal memory-keeper: an immutable raw layer of manually captured entries, e
 ## Language
 
 **Raw Entry**:
-A single captured data point — text plus its embedding, plus capture metadata (timestamp, source client, situational context, embedding model version, enrichment state). The atomic unit of write; the sole source of truth for the entire store. Never written to directly by enrichment — only appended via the write path. Immutable once written: it is never edited, and leaves only by Tombstone or Retraction. Bounded in size by what the embedding model can accept, since an entry that cannot be embedded is refused at capture rather than stored unsearchable.
+A single captured data point — text plus its embedding, plus capture metadata (timestamp, source client, situational context, the Derivation Epoch its embedding was produced under, enrichment state). The atomic unit of write; the sole source of truth for the entire store. Never written to directly by enrichment — only appended via the write path. Immutable once written: it is never edited, and leaves only by Tombstone or Retraction. Bounded in size by what the embedding model can accept, since an entry that cannot be embedded is refused at capture rather than stored unsearchable.
 _Avoid_: Memory, note, record
 
 **Enrichment**:
@@ -17,7 +17,7 @@ A structured, classified record derived from one or more Raw Entries by Enrichme
 _Avoid_: Memory, record, fact (lowercase)
 
 **Enrichment Run**:
-A single execution of Enrichment, in two phases: embed every Raw Entry missing an embedding, then swap models once and classify/extract every pending Raw Entry. **Incremental** processes only pending entries; **full** wipes all Entities and reprocesses every Raw Entry from scratch. Only one Run may be in flight at a time.
+A single execution of Enrichment, in two phases divided by kind of work: embed every Raw Entry missing an embedding, then classify/extract every pending Raw Entry. Three modes. **Incremental** processes only pending entries; **full** wipes all Entities and reprocesses every Raw Entry from scratch; **re-embed** rewrites only the vectors whose Derivation Epoch is no longer current, leaving Entities and their text untouched — a distinct operation because a change of embedding model invalidates vectors without invalidating what was extracted, and costs minutes where a full Run costs hours. Only one Run may be in flight at a time.
 _Avoid_: Job, batch, sync
 
 **Natural Key**:
@@ -45,8 +45,8 @@ The append-only, content-free record of every Retraction, held outside the datab
 _Avoid_: Audit log (that is `enrichment_events`, inside the database and cascaded away by Retraction), tombstone record, backup
 
 **Derivation Epoch**:
-The span since the current full Enrichment Run began — the period over which the present Entity layer was derived under one set of rules (prompt, entity-type definitions, models). The default window for schema-governance review, because a full re-run regenerates every Type Suggestion, so counts spanning epochs double-count and make a fixed type boundary look unfixed.
-_Avoid_: Generation, version
+The complete set of inputs an Entity was derived under — extraction prompt, entity-type definitions, enrichment model, embedding model, confidence threshold, and inference runtime version, each recorded by content so that a model tag moving under its own name is visible. Not a span of time: it is deduplicated by content, so an epoch begins only when a human deliberately changes the machine (a deploy, a config edit, a model pull) and never when data is captured. Its purpose is **attribution** — naming the rules behind a derived record, and detecting that today's rules differ — never reproduction, which is unreachable once a mutable model tag has moved and is unwanted anyway, since re-deriving under better rules should yield better Entities rather than identical ones. Recorded against every Entity, every audit row, and every embedding.
+_Avoid_: Generation, version, span (the governance window for schema review is a *time* window — since the last full Enrichment Run began — and is a separate thing)
 
 ### Entity Types
 
