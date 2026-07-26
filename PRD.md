@@ -67,7 +67,7 @@ Measured facts that decided things, kept because several arguments rest on them.
 
 Everything downstream is sized against **manual capture at roughly 20 entries/day** — about 7k raw entries a year. The entity layer is a compression of that. Two consequences recur:
 
-- Exact vector search is affordable for years (§6.2), and the index tripwire sits at ~30–50k rows.
+- Exact vector search is affordable for years (§6.2), and the index tripwire sits at ~30–50k rows or `search_entities` p95 > 150 ms (§13.4), whichever comes first.
 - One extraction call is **~18 s**, so a full re-derivation is **~5 h at 1k entries, ~25 h at 5k, ~50 h at 10k** — reaching ~36 h within a year. Full runs are rare *and expensive*; the second half of that is easy to forget.
 
 *Source: #16 §4, #18 §5.*
@@ -183,7 +183,7 @@ Read-only from outside. Written **only** by enrichment, in the per-entry transac
 | `id` | **`bigint`, generated as identity** — matching raw's, since the discipline protecting the two tables' opposite stability is #23's rule rather than a type difference. Unstable by design: reassigned by every full run and every retraction cascade, so **nothing durable is keyed on it** (§8.5). | #12 §8, #23, #30 |
 | `entity_type` | One of the seven. Exactly one per Entity; multi-typing is off the table. | #10, #12 §2 |
 | `natural_key` | The domain identity. Canonical, normalised, model-emitted. **`UNIQUE (entity_type, natural_key)`** — this is the merge key, and the merge is `INSERT … ON CONFLICT … DO UPDATE`. | #12 §1 |
-| `summary` | The derived prose. **Length-bounded** — both to stay inside the embedder's window and because an unbounded summary undermines the compression premise the tiering rests on. **The bound has no number** anywhere on the map (§13). Re-derived on every merge as `old summary + new raw entry → new summary`. | #16 §3 |
+| `summary` | The derived prose. **Length-bounded** — both to stay inside the embedder's window and because an unbounded summary undermines the compression premise the tiering rests on. **1,200 characters — a starting point, not a requirement (§13.4).** Re-derived on every merge as `old summary + new raw entry → new summary`. | #16 §3 |
 | `embedding` | `vector(1024)`, **`NOT NULL`**, `SET STORAGE PLAIN`. Over `summary`. Written inline in phase 2 in the same short transaction, and **re-embedded on every merge** — the merge destroys the old summary, so a stale vector would point at prose that no longer exists. | #16 §3 |
 | `embedding_epoch_id` | FK to `derivation_epochs`, the **embedding axis** — the re-embed handle. Subsumes the `embedding_model` column #16 originally specified, the same way it subsumed raw's. | #16 §3, #17 |
 | `derivation_epoch_id` | FK to `derivation_epochs`, the **extraction axis** — which rules produced this Entity. Distinct from the above because `--reembed` rewrites the vector while leaving the derivation untouched, which is the whole point of the mode; a single stamp would either never clear or restamp every Entity as freshly derived. Also the stamp `get_enrichment_status`'s epoch grouping reads. | #17, #29 |
@@ -199,7 +199,7 @@ Read-only from outside. Written **only** by enrichment, in the per-entry transac
 
 Episodic types therefore de-facto never merge, purely as a consequence of key specificity rather than a special case in code. **Key-specificity guidance is asymmetric on purpose:** a too-specific key yields a duplicate — graceful and harmless; a too-generic one **conflates** two distinct things and loses information in the merged summary. So every type biases over-specific, and Person/Project are the only deliberate exceptions.
 
-**Type stickiness.** Resolution looks up `natural_key` *ignoring* `entity_type` first. If an Entity exists under a different type, the existing type wins and the extraction merges into it — unless the new classification's confidence is substantially higher. Without this, a subject classified Preference in March and Decision in July fragments into two Entities and never merges, defeating the merge design exactly where it should help.
+**Type stickiness.** Resolution looks up `natural_key` *ignoring* `entity_type` first. If an Entity exists under a different type, the existing type wins and the extraction merges into it — unless the new classification's confidence is substantially higher: **≥ the incumbent's + 0.20, and ≥ the global threshold**, both a starting point (§13.4). The margin stops a 0.71-vs-0.70 flicker from re-typing an Entity on every run; the floor stops two low-confidence guesses from re-typing on a technicality. Without this, a subject classified Preference in March and Decision in July fragments into two Entities and never merges, defeating the merge design exactly where it should help.
 
 **Accepted caveat.** Merge is order-dependent, so folding the same entries in a different sequence yields differently-worded summaries. "Fully re-derivable" therefore weakens to **re-derivable up to summary wording** — same Entity set, same `source_entry_ids`, prose may differ.
 
@@ -787,7 +787,7 @@ review_schema({ since?: string }) → {
 
 An itemised view with a review watermark was considered and rejected: it puts a write path on a read tool, adds a table, and re-introduces the resurfacing problem — every regenerated suggestion postdates the watermark, so a full run hands back the entire backlog as unreviewed.
 
-**The confidence threshold is one global value, visible here but not writable through MCP.** A change is meaningful only paired with a re-run, and it is configuration rather than a decision the review loop makes. The histogram exists so the line can be re-cut counterfactually before anything changes. **Per-type thresholds were rejected** on the pipeline's own reasoning: type disambiguation lives in prompt-level `_Avoid_` rules rather than numeric tuning, and seven knobs is calibration there is no data to perform for one user. Its value is in `tome.env`; the number itself is not specified anywhere on the map (§13).
+**The confidence threshold is one global value, visible here but not writable through MCP.** A change is meaningful only paired with a re-run, and it is configuration rather than a decision the review loop makes. The histogram exists so the line can be re-cut counterfactually before anything changes. **Per-type thresholds were rejected** on the pipeline's own reasoning: type disambiguation lives in prompt-level `_Avoid_` rules rather than numeric tuning, and seven knobs is calibration there is no data to perform for one user. Its value is in `tome.env`, and the **starting point is 0.7 — a guess, not a requirement (§13.4)**.
 
 *Source: #14 §6, §8; #17.*
 
@@ -916,7 +916,7 @@ Matched with `pg_trgm`'s **`word_similarity` (`<<%`)**, not plain `similarity` �
 
 **Affordable because of the numbers.** A 1024-dim vector is ~4 KB, so at ~7k raw rows a year the working set lives in `shared_buffers` and an exact scan is pure CPU. Note the coherence: the primary surface is the *smaller* table, so the compression that justifies the tiering also makes the cheap index choice safer.
 
-**The trade is not static, which is why the tripwire is load-bearing.** Exact scan grows linearly, HNSW logarithmically. **Revisit at ~30–50k rows or measured `search_entities` p95, whichever comes first** — one migration file, no data migration. The tripwire is now *fireable* — `percentile_cont(0.95)` over `query_log.duration_ms` — but **it still has no threshold number** (§13). Raw rows grow faster than entities, so raw is what hits the wall first.
+**The trade is not static, which is why the tripwire is load-bearing.** Exact scan grows linearly, HNSW logarithmically. **Revisit at ~30–50k rows or measured `search_entities` p95, whichever comes first** — one migration file, no data migration. The tripwire is now *fireable* — `percentile_cont(0.95)` over `query_log.duration_ms` — and its starting threshold is **p95 > 150 ms over a trailing 7 days, minimum 50 logged queries**, a chosen value rather than a measured one (§13.4). The window and the minimum sample matter more than the number: without them a cold-cache outlier or a quiet week fires it. Raw rows grow faster than entities, so raw is what hits the wall first.
 
 *A forward-compatibility constraint on any future index choice:* chunked raw embedding is on the roadmap, and its shape — one Raw Entry plus a child table of `(entry_id, ordinal, span, embedding)` — multiplies raw vector rows ~5× and makes raw search a *group-by-entry* query rather than a flat top-k.
 
@@ -1160,7 +1160,7 @@ stop tome-enrich.timer
 **`/etc/tome/tome.env`, via `EnvironmentFile=`.** Contents:
 
 - the `Host` allowlist — the literal short name, the tailnet IPv4 and IPv6, `localhost`/`127.0.0.1`, and a **suffix pattern** (`*.tailc0e3c3.ts.net`) so a *device* rename cannot break every client
-- the **global confidence threshold**
+- the **global confidence threshold** (starting value **0.7**, §13.4)
 - model names
 - the per-request `num_ctx` ceiling
 - the database URL
@@ -1720,7 +1720,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `derivation_epoch_id` FK on `entities`, `enrichment_events`, and **every `query_log` row**. *(#17, #23)*
 - [ ] `embedding_epoch_id` on **both** `raw_entries` and `entities` — the `--reembed` predicate reads it on both layers. *(#17)*
 - [ ] `raw_entries.prompt_eval_count` stored at capture. *(#18)*
-- [ ] Bounded `entities.summary`. **No number exists** — §13. *(#16)*
+- [ ] Bounded `entities.summary` — **1,200 chars**, a starting point (§13.4). *(#16)*
 - [ ] Type Override persists across full mode; full mode's reset is `WHERE text IS NOT NULL`. *(#14)*
 - [ ] `schema_migrations(version, applied_at)`; numbered SQL files, each in its own transaction. *(#20)*
 
@@ -1790,7 +1790,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `resolve_entry` description: records a decision a human has already made; **must not be called autonomously**. *(#14)*
 - [ ] `context` cap **1,000 chars in code**, coupled to the **500-token** allowance — raise one, raise the other. *(#25)*
 - [ ] `capture_entry` size rejection: **permanent / the numbers / split-and-retry**, written for the model as primary reader. Plus the ~40,000-char absurdity backstop. *(#18)*
-- [ ] Confidence threshold **visible via `review_schema`, not writable through MCP**. *(#14)*
+- [ ] Confidence threshold **visible via `review_schema`, not writable through MCP**. Starting value **0.7**; type-stickiness override margin **+0.20 and ≥ threshold** (§13.4). *(#14)*
 - [ ] `get_enrichment_status` gains **entity counts grouped by epoch**. *(#17)*
 - [ ] `review_schema`'s window = **since the last full run began**, read from the run log. *(#17)*
 
@@ -1939,9 +1939,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **"Fidelity is inversely proportional to merge depth"; Person/Project are "the telephone game by design"** | Nobody has checked whether a twelve-times-merged summary is still findable |
 | **Exact-vs-HNSW recall on *this* corpus** | The "~1–5%" is a general figure, not Tome's |
 | **The one-vs-two-embedder question** (`embeddinggemma`'s measured +0.069 on entity-shaped text) | Deferred; a path to evidence now exists from 90 days after deploy |
-| **The ANN tripwire has no threshold number** | Fireable but uncalibrated — exact-scan latency at 1024 dims was never measured |
-| **The `entities.summary` length bound has no number** | Required by #16, never specified |
-| **The confidence threshold has no number** | Required to exist, in `tome.env`; the value is unspecified |
+| **The ANN tripwire threshold, the `entities.summary` bound, the confidence threshold and the type-stickiness margin** | **Now have starting values (§13.4), none of them measured.** Exact-scan latency at 1024 dims was never measured; the other three were never specified by any ticket. Filled in so nothing blocks — every one is expected to move. |
 | **`bge-m3` embed latency against the 5 s capture budget** | Never measured, and entity embedding added contention on the same `NUM_PARALLEL=1` instance |
 | **Ollama's per-model runner queues** — the basis for "a capture embed doesn't queue behind a `qwen3` generation" | Reasoned from architecture, not measured |
 | **Ollama's per-model pooling in GGUF conversion** | Unverified; `bge-m3` declares CLS, matching its card |
@@ -1951,6 +1949,21 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **The backup space budget** | Arithmetic, not measurement — which is why the free-space guard exists rather than the table |
 | **Claude Desktop's lack of native remote-MCP support** | Verified at decision time; **re-check before building** |
 | **The `granite-embedding-english-r2` near-miss** | Not in the Ollama library at decision time; worth re-checking |
+
+### 13.4 Starting-point values — chosen, not derived
+
+> **Read this before using any number in this section.** The four values below are **educated guesses, filled in so that nothing blocks on an unmade decision.** None is a technical requirement, none was measured, and no analysis anywhere in this document depends on any of them being right. They exist so a builder is not forced to invent a number silently and so there is a single place to tune. **Expect to change all four**, and treat a change as configuration, not as overturning a decision.
+>
+> Each is stated at its use site with a pointer back here, so the caveat travels with the number.
+
+| Value | Starting point | Reasoning — such as it is | Tune when |
+|---|---|---|---|
+| **`entities.summary` length bound** (§3.3) | **1,200 characters** | ~15% of a maximum-size capture (2,048 tokens ≈ 8,000 chars), so a summary stays visibly compressive even for a single-source Entity and dramatically so for a merged hub — which is the tiering premise's whole claim. Roughly 200 words: one solid paragraph. Sits beside `context`'s 1,000-char cap in the same idiom, and fits trivially in the merge prompt alongside a full-size entry. **Characters, not tokens**, so it enforces at write time with no tokenizer call. | Hub Entities read as truncated mid-thought, or summaries are padding out to the cap with filler. |
+| **Global confidence threshold** (§5.7) | **0.7** | Below it, extraction records an `ambiguous` Type Suggestion instead of committing. LLM-emitted confidences are poorly calibrated and bunch high, so a conventional 0.5 would essentially never fire and the suggestion channel would go dead. 0.7 is high enough to catch genuine hesitation without flooding `review_schema`. | The `ambiguous` list is either empty for weeks or too long to review. `review_schema`'s histogram exists precisely to re-cut this line counterfactually first. |
+| **Type-stickiness override margin** (§3.3) | **new confidence ≥ incumbent + 0.20, and ≥ the global threshold** | §3.3 says an existing type wins unless the new classification is "substantially higher" and never says what that means. Two conditions rather than one: a *margin* stops a 0.71-vs-0.70 flicker from re-typing an Entity every run, and the *floor* stops a low-confidence pair from re-typing on a technicality. | Entities are observed flip-flopping between types across runs (margin too small), or a genuinely mis-typed Entity will not correct itself (too large). |
+| **ANN tripwire threshold** (§6.2) | **`search_entities` p95 > 150 ms, over a trailing 7 days, minimum 50 logged queries** | The companion trigger is ~30–50k rows, whichever comes first. §6.2's honest magnitudes put exact scan in the ~10–20 ms range, so 150 ms is ~10× headroom — it will not false-fire, but it fires *before* anything is perceptible inside an LLM turn, which is the point: it should be a warning, not a symptom. The **window and minimum sample** are the load-bearing part — without them a cold-cache outlier or a quiet week fires it. | It fires, or the row trigger arrives first and latency is still flat — in which case raise it rather than removing it. |
+
+**None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. The confidence threshold is the closest call — it changes what extraction *records* — but §5.7 already establishes that a change is only meaningful paired with a re-run, which is the deliberate act, and §7.8's fingerprint reads named keys rather than hashing the file precisely so a tuning edit does not register as a rule change.
 
 ---
 
@@ -1970,7 +1983,7 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 ### Two smaller notes, **not ticketed** — recorded so they are not rediscovered
 
 - **#12's DB-level enforcement sentence** reads *"`REVOKE UPDATE/DELETE` on `entities` … and route mutations through a function that writes the event."* The invariant restated across #18/#19/#23/#26 is unambiguously about **`enrichment_events` being append-only**, so §3.5 states it that way with the routing as its mechanism. Worth a glance from whoever writes the grants.
-- **Numbers that must be chosen at build time** because no ticket names them: the `entities.summary` length bound, the confidence threshold, and the ANN tripwire's p95 value. All three are listed in §13.3.
+- **Numbers no ticket ever named** — the `entities.summary` length bound, the confidence threshold, the ANN tripwire's p95 value, and (found while filling the others in) the type-stickiness override margin, which §3.3 called "substantially higher" without ever saying how much. **All four now carry starting values in §13.4**, explicitly guesses rather than requirements, so that a builder tunes a stated number instead of inventing one silently.
 
 ---
 
