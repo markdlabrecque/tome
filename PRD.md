@@ -130,7 +130,7 @@ Append-only. The only mutations are `enrichment_state` and its companions, a Typ
 
 | Field | Notes | Source |
 |---|---|---|
-| `id` | Referred to as `raw_entry_id` throughout the tool surface. **Concrete type undecided — open as [#30](https://github.com/markdlabrecque/tome/issues/30).** | #11 |
+| `id` | **`bigint`, generated as identity.** Referred to as `raw_entry_id` throughout the tool surface; the wire type is `string` regardless. Immutable and stable, unlike an entity id. | #11, #30 |
 | `text` | The captured content. **Nullable** — a Tombstone nulls it. Every work query must therefore carry `AND text IS NOT NULL` (§11). | #14 §4 |
 | `context` | Optional, agent-authored, **≤ 1,000 characters**, holding **referents and setting only**. **Excluded from the embedding.** Read by extraction as a *subordinated* tie-break. Nullable; nulled by Tombstone, purged by Retraction. Full treatment in §3.3. | #25 |
 | `embedding` | `vector(1024)`, **nullable** — capture may defer it (§4.5). `SET STORAGE PLAIN`. Computed over `text` **alone**. | #16, #25 §2 |
@@ -144,7 +144,7 @@ Append-only. The only mutations are `enrichment_state` and its companions, a Typ
 | `last_failed_stage` | `embed` \| `enrich` — two different models, so one opaque error string would be much harder to act on. | #12 §4 |
 | `reason_code` | Set with `resolution_required` and with `skipped`. Enumerated in §4.7. | #12, #18, #24 |
 | `prompt_eval_count` | The exact bge-m3 token count returned by the inline embed at capture. Worth storing: it is the input to §4.4's pre-flight assertion, which must not re-measure. | #18 §6 |
-| Type Override | An `entity_type` or null, recorded by `resolve_entry`'s `set_type`. **Durable *input* to derivation**, so it survives a full run. Applies as a **tie-break only**. Placement (column here vs. its own table) is **open as [#31](https://github.com/markdlabrecque/tome/issues/31)**. | #14 §3, §5 |
+| `type_override` | A nullable `entity_type`, recorded by `resolve_entry`'s `set_type`; `null` clears it. **Durable *input* to derivation**, so it survives a full run. Applies as a **tie-break only**. A column rather than a table: it is one per-entry value, and its history already lives in `enrichment_events` as a never-prunable class — the same relationship `enrichment_state` has with `prior_decisions`. | #14 §3, §5; #31 |
 
 **The one thing that cannot slip: record the embedding model's tag *and* digest at capture.** The derived side is fully reversible — add a column in six months and one full run backfills the corpus. The raw side is write-once and *already decaying*: there is no re-derivation for the source of truth, so a raw vector's provenance is recorded once or never. Every raw vector written without a digest goes permanently ambiguous the moment `bge-m3:latest` republishes, and you can neither backfill a digest you never captured nor obtain the old artifact to compare against. (#17)
 
@@ -179,13 +179,13 @@ Read-only from outside. Written **only** by enrichment, in the per-entry transac
 
 | Field | Notes | Source |
 |---|---|---|
-| `id` | Database identity, unstable by design — reassigned by every full run and by every retraction cascade. **Nothing durable is keyed on it** (§8.5). Type undecided, and need not match raw's — open as [#30](https://github.com/markdlabrecque/tome/issues/30). | #12 §8, #23 |
+| `id` | **`bigint`, generated as identity** — matching raw's, since the discipline protecting the two tables' opposite stability is #23's rule rather than a type difference. Unstable by design: reassigned by every full run and every retraction cascade, so **nothing durable is keyed on it** (§8.5). | #12 §8, #23, #30 |
 | `entity_type` | One of the seven. Exactly one per Entity; multi-typing is off the table. | #10, #12 §2 |
 | `natural_key` | The domain identity. Canonical, normalised, model-emitted. **`UNIQUE (entity_type, natural_key)`** — this is the merge key, and the merge is `INSERT … ON CONFLICT … DO UPDATE`. | #12 §1 |
 | `summary` | The derived prose. **Length-bounded** — both to stay inside the embedder's window and because an unbounded summary undermines the compression premise the tiering rests on. **The bound has no number** anywhere on the map (§13). Re-derived on every merge as `old summary + new raw entry → new summary`. | #16 §3 |
 | `embedding` | `vector(1024)`, **`NOT NULL`**, `SET STORAGE PLAIN`. Over `summary`. Written inline in phase 2 in the same short transaction, and **re-embedded on every merge** — the merge destroys the old summary, so a stale vector would point at prose that no longer exists. | #16 §3 |
 | `embedding_epoch_id` | FK to `derivation_epochs`, the **embedding axis** — the re-embed handle. Subsumes the `embedding_model` column #16 originally specified, the same way it subsumed raw's. | #16 §3, #17 |
-| `derivation_epoch_id` | FK to `derivation_epochs`, the **extraction axis** — which rules produced this Entity. Distinct from the above because `--reembed` rewrites the vector while leaving the derivation untouched, which is the whole point of the mode. **Two-FK reading harmonised from #16/#17 rather than stated by either — open as [#29](https://github.com/markdlabrecque/tome/issues/29).** | #17 |
+| `derivation_epoch_id` | FK to `derivation_epochs`, the **extraction axis** — which rules produced this Entity. Distinct from the above because `--reembed` rewrites the vector while leaving the derivation untouched, which is the whole point of the mode; a single stamp would either never clear or restamp every Entity as freshly derived. Also the stamp `get_enrichment_status`'s epoch grouping reads. | #17, #29 |
 | `type_confidence` | The classifier's confidence in `entity_type`. Surfaced under `debug`; feeds `review_schema`'s histogram and mean. | #12 §2 |
 | `considered_types` | The types that also fit. Surfaced under `debug`; feeds the `ambiguous` Type Suggestion. | #12 §2 |
 | `source_entry_ids` | Every Raw Entry that contributed. Appended on merge. Read by `get_history` as `related_ids`, and by the retraction cascade as its match predicate. **A purged id left here is a dangling reference**, which is why the cascade is structural rather than statistical (§8.3). | #12 §1, #18 §3 |
@@ -333,7 +333,7 @@ Written by enrichment when classification strains, in two kinds:
 
 They are recorded as `enrichment_events` rows (§3.5 lists them among what that table captures) and are therefore **not deleted by full mode**, which deletes Entities only. `review_schema` bounds them by *time* instead (§5.7). Their classification as "derived" in §3.1 is about **migration cost** — nothing needs migrating because re-derivation refills them — not about being wiped.
 
-Whether they warrant a dedicated table is **open as [#31](https://github.com/markdlabrecque/tome/issues/31)** — which also has to rule on retraction reach, the pruning boundary, and full mode's wipe scope.
+Three consequences follow from their living in the log, and none needed a separate ruling: they **cascade on retraction** with their entry (a suggestion is a statement about an entry that no longer exists); they fall inside #19's never-prunable *current governance window* class, so **#19's "no second exception" stands**; and full mode leaves them alone, which is what makes #17's window necessary rather than a defect.
 
 *Source: #10, #12 §7, #14 §6.*
 
@@ -384,6 +384,14 @@ Only **one run may be in flight at a time**, enforced by a Postgres advisory loc
 **When a full run actually happens:** manually and rarely — after swapping the enrichment model, adding or retiring an entity type, tuning the extraction prompt or the disambiguation rules, or fixing an over-merging natural key. Never part of normal operation.
 
 **`reembed` exists because "re-embed everything" was otherwise inexpressible**: phase 1 sweeps rows *missing* an embedding, and entity vectors are `NOT NULL`, so nothing could say "these vectors are fine, they are simply from the wrong model." Its predicate is `embedding_epoch_id != current`, the same shape as the pending sweep and therefore **idempotent and resumable** — kill it halfway and re-running finishes. The manual `UPDATE … SET embedding = NULL` runbook cannot touch entities at all under `NOT NULL`, and would put `search_raw` into silently-partial results. Folding it into full mode is fifty hours to do a six-minute job.
+
+```sql
+-- tome-enrich --reembed
+raw_entries WHERE embedding_epoch_id <> $current AND text IS NOT NULL
+entities    WHERE embedding_epoch_id <> $current
+```
+
+Raw carries the Tombstone predicate; entities cannot be tombstoned. Note that it reads **`embedding_epoch_id`** on both layers and never touches `derivation_epoch_id` — that separation is the whole reason entities carry two stamps (§3.4).
 
 **It is CLI-only because it follows a deliberate operator act** — an `ollama pull`, a model swap — and belongs behind a log-in-to-the-box gate, consistent with how full mode's blast radius is reached. An agent has no business pressing it.
 
@@ -826,6 +834,8 @@ retract_entry({
 **A server-verified `text_prefix`, not a bare id and not a `confirm` flag.** There is no undo and no trace, and ids arrive from `search_raw` in an agent's context, possibly several turns stale. The prefix converts "wrong id" from silent total loss into a legible 400, at the cost of one parameter copied from the search result the caller already holds. `confirm: true` is theatre — the calling LLM fills it in unread.
 
 **A `reason_code` enum, not a free-text note.** For the `sensitive` case, a note restating what was retracted reintroduces the content it just removed: the audit trail becomes the leak.
+
+**Under `bigint` ids the prefix guard is load-bearing, not defence-in-depth** (#30). A stale or off-by-one id lands on a **real neighbouring entry**, where a wrong uuid would land on nothing. The guard was chosen for exactly this failure, so it must never be relaxed to a confirmation flag and its verification must stay server-side.
 
 Mechanics, cascade, and the precise guarantee are in §8.3.
 
@@ -1933,21 +1943,27 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 
 ---
 
-## 14. Surfaced while assembling — now ticketed
+## 14. Surfaced while assembling
 
-Four things came up in consolidation that no ticket settled. **None is a contradiction between closed tickets**, so none was resolved inside this document. **All four are now open decision tickets** — [#28](https://github.com/markdlabrecque/tome/issues/28), [#29](https://github.com/markdlabrecque/tome/issues/29), [#30](https://github.com/markdlabrecque/tome/issues/30), [#31](https://github.com/markdlabrecque/tome/issues/31) — and each names the PRD sections its resolution must update.
+Four things came up in consolidation that no ticket settled. **None was a contradiction between closed tickets**, so none was resolved inside this document — each became a ticket. **Three are now closed and folded into the sections above; one remains open.**
 
-They are standalone issues rather than children of the map, following #27's precedent: the map is complete and its frontier is empty, and none of these redraws the destination. What each one leaves provisional is flagged in place in the sections above.
+### Open
 
-1. **[#28](https://github.com/markdlabrecque/tome/issues/28) — `ollama pull` is a fourth egress path and is not in the named list.** §1.3 names three exceptions (Tailscale signalling, NTP, `uv sync`). Pulling a model reaches the Ollama registry, and both #17 (the epoch trigger table) and #19 ("the blobs are re-pullable") depend on it being possible. It looks like the same shape as the `uv sync` exception — human-initiated, never automatic, carrying no Tome data — but **#28 found that the analogy does not hold cleanly**: `uv sync` runs in the operator's shell *outside* the units, whereas a pull is fetched by the **daemon**, and #15 §4's `IPAddressDeny=any` was written for the Tome units with `ollama.service`'s address policy left unstated. So §7.7 does not currently say whether that unit is sealed, and §1.3's claim that the deny is kernel-enforced *for the units* has one unit unaccounted for.
+**[#28](https://github.com/markdlabrecque/tome/issues/28) — `ollama pull` is a fourth egress path, and `ollama.service`'s address policy is unstated.** §1.3 names three exceptions (Tailscale signalling, NTP, `uv sync`). Pulling a model reaches the Ollama registry, and both #17's epoch trigger table and #19's "the blobs are re-pullable" depend on it being possible.
 
-2. **[#29](https://github.com/markdlabrecque/tome/issues/29) — naming drift on the entity epoch stamps.** #17 says entities gain `derivation_epoch_id`, and separately that `--reembed`'s predicate is `embedding_epoch_id != current` **over both layers**. Both are needed and they are not the same thing — the mode exists precisely to rewrite a vector while leaving the derivation stamp alone — so §3.4 gives entities **both** FKs and notes that #16's `embedding_model` column is subsumed by the second, exactly as raw's was. That is a naming harmonisation, not a new decision, but it is flagged because a builder reading #16 and #17 side by side will see three names for two things.
+It looks like the same shape as the `uv sync` exception — human-initiated, never automatic, carrying no Tome data — but the analogy does not hold: `uv sync` runs in the operator's shell **outside** the units, whereas a pull is fetched by the **daemon**, and #15 §4's `IPAddressDeny=any` was written for the Tome units with `ollama.service` left unaccounted for. So either that daemon has standing outbound access for the life of the system, or sealing it breaks pulls and pulling becomes an unseal → pull → reseal step. Both are defensible; §1.3 claiming no-egress is kernel-enforced *for the units* while one unit's status is unstated is not.
 
-3. **[#30](https://github.com/markdlabrecque/tome/issues/30) — the `id` type is undecided.** Tool signatures say `raw_entry_id: string`; log-line examples say `entry 331` and `entity 4821`; #18 discusses `source_entry_ids` "if that is a `uuid[]`" hypothetically. Genuinely a build decision, and #30 records that #26's invariant C gave it consequences the earlier tickets could not have seen — the id is now the *only* identifier in a log line. One constraint holds either way: `source_entry_ids` has **no FK to catch a dangling reference** if it is an array, which is why the retraction cascade is structural (§8.3).
+**This is the only one of the four that needed real deliberation** — it has an unchecked fact on the live box, it changes a stated hard constraint rather than a schema detail, and neither outcome is obviously right. §1.3 and §7.7 flag what they leave provisional.
 
-4. **[#31](https://github.com/markdlabrecque/tome/issues/31) — where Type Overrides and Type Suggestions physically live.** Overrides are per-entry durable input (a column on `raw_entries` is the natural reading, since keying to `(raw_entry_id, natural_key)` was explicitly rejected). Suggestions are recorded as `enrichment_events` rows per #12, which is consistent with the time-windowed `review_schema` and with surviving full mode — their "derived" classification in #19/#20 is about migration cost, not about being wiped. Both readings are stated in §3.2 and §3.9; neither is forced by a ticket. #31 also notes that the placement decides three things beyond itself — retraction reach, the pruning boundary, and full mode's wipe scope.
+### Closed — the answers are in the sections above
 
-Two smaller notes, **not ticketed** — recorded here so they are not rediscovered:
+| | Question | Answer | Now in |
+|---|---|---|---|
+| **[#29](https://github.com/markdlabrecque/tome/issues/29)** | Entity epoch stamps: one FK or two? | **Two** — `derivation_epoch_id` and `embedding_epoch_id`. Deduction, not a decision: the re-embed mode is *defined* as leaving Entities untouched, so one stamp would either never clear or restamp every Entity as freshly derived under rules that never touched extraction. #16's `embedding_model` is subsumed by the second, exactly as raw's was, because the epoch record carries the **digest** that a tag comparison cannot see. | §3.4, §4.1 |
+| **[#30](https://github.com/markdlabrecque/tome/issues/30)** | `id` type, and must the two tables match? | **`bigint` for both.** uuid's real purposes — generation outside the database, unguessability — do not apply. Decided by #26's invariant C making the id the *only* identifier in a log line; the ordering/size leak is accepted as negligible beside an unencrypted disk. **Obligation recorded:** the `text_prefix` guard is now load-bearing, since an off-by-one lands on a real neighbouring entry. | §3.2, §3.4, §5.9 |
+| **[#31](https://github.com/markdlabrecque/tome/issues/31)** | Where do Type Overrides and Type Suggestions live? | **Override: a column on `raw_entries`** (one per-entry value, history already in the log as a never-prunable class). **Suggestions: `enrichment_events` rows**, which #12 §7 already specified — the "derived" classification in #19/#20 is about migration cost, and the tension was manufactured. Retraction reach, pruning and wipe scope all follow automatically. | §3.2, §3.9 |
+
+### Two smaller notes, **not ticketed** — recorded so they are not rediscovered
 
 - **#12's DB-level enforcement sentence** reads *"`REVOKE UPDATE/DELETE` on `entities` … and route mutations through a function that writes the event."* The invariant restated across #18/#19/#23/#26 is unambiguously about **`enrichment_events` being append-only**, so §3.5 states it that way with the routing as its mechanism. Worth a glance from whoever writes the grants.
 - **Numbers that must be chosen at build time** because no ticket names them: the `entities.summary` length bound, the confidence threshold, and the ANN tripwire's p95 value. All three are listed in §13.3.
