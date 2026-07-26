@@ -37,13 +37,14 @@ All embedding and enrichment inference runs locally on the machine. All componen
 
 ### 1.3 Named egress exceptions
 
-The no-egress rule has explicitly named exceptions. Each is human-initiated or carries no memory content; none is an automatic path out for Tome data.
+The no-egress rule has explicitly named exceptions. Each is human-initiated or carries no memory content; none is an automatic path out for Tome data. **Three of the four are bounded by *where they run*; the fourth is bounded only by nobody invoking it** — see item 4 and the scope note below.
 
 1. **Tailscale's own signalling** — coordination server and DERP relays. Without it there is no tailnet, so this is definitional rather than conceded. (#15 §9)
 2. **NTP** — `chronyd`, kept deliberately. Refusing it makes the RTC the sole authority, dual-boot drift becomes permanent, and a bad enough drift breaks Tailscale's handshakes and so takes down the only ingress path. Carries no memory content. (#15 §9)
 3. **`uv sync` reaching PyPI during a deploy** — human-initiated, never automatic, and it runs as root *outside* the units, so §7.4's kernel-enforced `IPAddressDeny=any` on the running system is untouched. (#20)
+4. **`ollama pull`, and hand-driven Ollama upgrades** — human-initiated and never automatic (#17: Ollama is hand-installed at `/usr/local/bin`, owned by no package, with no unattended upgrade path), and carrying no Tome data outbound. **But it does not clear the bar item 3 clears.** Measured on this machine: a bare `POST /api/pull` with no CLI in the picture returns `pulling manifest` followed by a registry error, so the fetch happens **inside `ollama.service`** rather than in the operator's shell. Sealing that unit was measured and declined (§7.7), so the daemon has **standing outbound access for the life of the system** — the *act* is human-initiated, the *capability* is not. (#28)
 
-*A fourth path — `ollama pull` — is implied across #17 and #19 but was never added to this list, and it is **not** cleanly of the same shape: the fetch happens in the Ollama **daemon**, not in the operator's shell, so `ollama.service`'s address policy decides whether this is a human-initiated exception or a standing one. Open as [#28](https://github.com/markdlabrecque/tome/issues/28); not decided here.*
+**What *kernel-enforced* covers, precisely.** §7.4's `IPAddressDeny=any` is set on the three **Tome** units. It is not set on `ollama.service`, which carries no address policy at all. So *no external egress* is a kernel-enforced property of the units Tome ships, and a property of **application behaviour** for the Ollama daemon — which is the unit that receives every raw entry text, on both the embed and the enrichment path. This is stated rather than sealed, on the judgement recorded in §7.7. (#28)
 
 ### 1.4 The machine
 
@@ -1134,8 +1135,17 @@ stop tome-enrich.timer
 | **`OLLAMA_GPU_OVERHEAD`** | raise to ~1.5 GiB from `0` | At `0`, Ollama sizes models as though all 15.98 GiB were free when ~1.16 GiB is not. **This, not cgroup limits, is the real guardrail** — VRAM is not cgroup-controllable at all. |
 | **Drop the global `OLLAMA_CONTEXT_LENGTH`** | in favour of a **per-request `num_ctx` ceiling ~16k** | The global override was 8× Ollama's own VRAM-derived choice for this card; ~55k would fit, and the headroom is left unspent. Inert on the embed path anyway (§6.4). |
 | **`OLLAMA_NUM_PARALLEL`** | stays **1** | At 4, KV alone would be ~10.9 GiB and nothing fits. |
+| **Bind loopback only** | **`OLLAMA_HOST=127.0.0.1:11434`**, moved into the Tome drop-in | Already the bind on this machine — but only via a **non-Tome** drop-in this document did not own. See *The bind is pinned* below. |
 
-**Unstated, and open as [#28](https://github.com/markdlabrecque/tome/issues/28):** the drop-in above sets no address policy, so unlike the Tome units (§7.4) `ollama.service` has no `IPAddressDeny=`. Whether it should — and if so, what the model-pull procedure becomes — is undecided. Until it is settled, §1.3's *kernel-enforced for the units* claim covers the three Tome units and not this one.
+**Address policy: `ollama.service` is deliberately left unsealed.** Unlike the Tome units (§7.4) it carries no `IPAddressDeny=` — measured, both properties empty — so the daemon has standing outbound access. A seal (`IPAddressDeny=any`, `IPAddressAllow=localhost`) was measured on the live box and **declined**:
+
+- **It works, and costs nothing in steady state.** `systemctl set-property --runtime` applies the filter to the *running* daemon with **no restart** — `MainPID` unchanged across both flips — so the pinned embedder and a resident `qwen3:14b` survive it. `localhost` expands to `127.0.0.0/8 ::1/128`, which keeps the MCP server and the enrichment runner on 11434, and DNS survives via the `127.0.0.53` stub because `systemd-resolved` makes the upstream query in its own unit. `--runtime` also means a forgotten reseal self-heals at the next boot.
+- **But it breaks pulls opaquely.** `IPAddressDeny=` is a cgroup BPF filter that **drops packets** rather than refusing the syscall, so a sealed pull never sees `EPERM` — it stalls indefinitely at `pulling manifest` with no diagnostic naming the seal. A `make pull` wrapper (unseal → pull → reseal, the reseal in a `trap`) would reduce the ordinary case to a spelling change, but habit still reaches for bare `ollama pull`, and the failure it produces is a hang.
+- **The threat is real as a capability, unobserved as a behaviour.** The binary carries client code for Ollama's *cloud* services — `api/web_search`, `api/experimental/model-recommendations`, `v1/models`, `connect`, `settings/keys` — and `web_search` POSTs query text to ollama.com. This daemon receives every raw entry text; its upgrade path is an unreviewable `curl | sh` (§1.4); and §7.12's tripwire greps journald, so it cannot see a socket. Against that: nothing here is observed to fire unbidden, and the journal shows no update-check chatter.
+
+**Declined on proportion, not on the argument.** The exposure is a capability rather than an observed behaviour, and the seal spends a new and *silent* failure mode on a rare hand-driven act. **Named as the thing to revisit** if Ollama ships a feature that egresses by default, or makes cloud routing implicit rather than opt-in — revisiting is cheap, since the seal is two lines and needs no restart. What it costs meanwhile is stated plainly in §1.3 rather than papered over.
+
+**The bind, however, is pinned** — a *different* exposure, inbound, and separately decided. `OLLAMA_HOST=127.0.0.1:11434` moves into the Tome drop-in. It is already the bind here, but only through the pre-existing `90-pi-local-rocm.conf`, which this document neither owned nor mentioned. A rebuild from this PRD, or a lost drop-in, leaves Ollama on `0.0.0.0:11434` — and §1.4's measured firewalld fact (**1025–65535 open inbound on `eno1`**, `tailscale0` in no zone) makes that reachable from the physical LAN, unauthenticated, with no `Host` allowlist and no auth of Ollama's own. That is exactly the exposure §7.4 calls load-bearing rather than defence-in-depth. One line, no ritual, no new failure mode — so unlike the seal it is not a trade.
 
 **The failure mode pinning makes unreachable.** Ollama evicts only models that have gone **idle**, with no priority or reservation concept. So if the embedder is *not* resident when a capture arrives mid-run: the request cannot evict a busy `qwen3`, it queues, it blows the 5 s budget into the deferred path, and then **once `qwen3` idles it is evicted to make room for a 275 MB model**, forcing a 10 GiB reload on the run's next entry. A trickle of saves thrashes the run. Pinning the small model removes the branch entirely.
 
@@ -1143,7 +1153,7 @@ stop tome-enrich.timer
 
 **The iGPU is ruled out on hard data.** Capacity-wise the reasoning was sound (`mem_info_gtt_total` is ~30 GiB on *both* cards). It inverts on compute: **2 CUs against 80**, no rocblas for `gfx1036` (Vulkan only), DDR5 at ~96 GB/s against GDDR6 at ~512 GB/s. Decisively, **a larger context makes prefill dominant and prefill is compute-bound**, so the iGPU is at its worst precisely at the operation the extra capacity was for — order-of-magnitude ~20 s versus ~9 minutes for a 10k-token prompt, per entry. Against a 15-minute tick that is one or two entries per run: not "slow but fine in the background" but "cannot drain a backlog." Also mechanical: Ollama has **no per-model device selection** — visible devices are per *server process* — so splitting the models across both GPUs would require two Ollama services on two ports.
 
-*Source: #15 §5–6, #22, #24.*
+*Source: #15 §5–6, #22, #24, #28.*
 
 ### 7.8 Configuration
 
@@ -1791,6 +1801,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `IPAddressDeny=any` + `IPAddressAllow=100.64.0.0/10 fd7a:115c:a1e0::/48 localhost`; bind `0.0.0.0`. *(#15)*
 - [ ] Timer: monotonic, ~15 min, `OnBootSec≈5min`, **no `Persistent=`**, no `Restart=` on the runner. *(#15)*
 - [ ] Ollama drop-in: shorten the global keep-alive; **`OLLAMA_GPU_OVERHEAD` ~1.5 GiB**; drop the global `OLLAMA_CONTEXT_LENGTH`; `NUM_PARALLEL=1`. *(#15)*
+- [ ] ⚠ **`OLLAMA_HOST=127.0.0.1:11434` in the *Tome* drop-in.** It is already the bind here, but only via the pre-existing `90-pi-local-rocm.conf`, which Tome does not own — and `0.0.0.0:11434` is LAN-reachable given the firewalld zone. **`ollama.service` gets no `IPAddressDeny=`** — deliberately, §7.7. *(#28)*
 - [ ] **`LogNamespace=tome`** on `tome-mcp`, `tome-enrich`, `tome-backup`, **and `postgresql.service`** (drop-in). *(#26)*
 - [ ] `/etc/systemd/journald@tome.conf`: `MaxRetentionSec=30day`, ⚠ **`MaxFileSec=1day`**, `SystemMaxUse=1G`. Whole-box drop-in: `SystemMaxUse=4G`, no time limit. *(#26)*
 - [ ] ⚠ `logging_collector=off`, `log_parameter_max_length_on_error=0`. *(#26)*
@@ -1945,20 +1956,13 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 
 ## 14. Surfaced while assembling
 
-Four things came up in consolidation that no ticket settled. **None was a contradiction between closed tickets**, so none was resolved inside this document — each became a ticket. **Three are now closed and folded into the sections above; one remains open.**
-
-### Open
-
-**[#28](https://github.com/markdlabrecque/tome/issues/28) — `ollama pull` is a fourth egress path, and `ollama.service`'s address policy is unstated.** §1.3 names three exceptions (Tailscale signalling, NTP, `uv sync`). Pulling a model reaches the Ollama registry, and both #17's epoch trigger table and #19's "the blobs are re-pullable" depend on it being possible.
-
-It looks like the same shape as the `uv sync` exception — human-initiated, never automatic, carrying no Tome data — but the analogy does not hold: `uv sync` runs in the operator's shell **outside** the units, whereas a pull is fetched by the **daemon**, and #15 §4's `IPAddressDeny=any` was written for the Tome units with `ollama.service` left unaccounted for. So either that daemon has standing outbound access for the life of the system, or sealing it breaks pulls and pulling becomes an unseal → pull → reseal step. Both are defensible; §1.3 claiming no-egress is kernel-enforced *for the units* while one unit's status is unstated is not.
-
-**This is the only one of the four that needed real deliberation** — it has an unchecked fact on the live box, it changes a stated hard constraint rather than a schema detail, and neither outcome is obviously right. §1.3 and §7.7 flag what they leave provisional.
+Four things came up in consolidation that no ticket settled. **None was a contradiction between closed tickets**, so none was resolved inside this document — each became a ticket. **All four are now closed and folded into the sections above.**
 
 ### Closed — the answers are in the sections above
 
 | | Question | Answer | Now in |
 |---|---|---|---|
+| **[#28](https://github.com/markdlabrecque/tome/issues/28)** | Is `ollama pull` a fourth egress exception, and does `ollama.service` carry the deny? | **Named as the fourth exception; the unit is left unsealed.** Measured: the registry fetch happens in the **daemon** (a bare `POST /api/pull` reaches the registry with no CLI involved), and the unit carries no address policy at all — so the *act* is human-initiated but the *capability* is standing. A seal was measured working, live, with no restart, and declined on proportion: it drops packets rather than refusing the syscall, so a sealed pull **hangs at `pulling manifest`** with no diagnostic, which is a silent failure mode spent on an unobserved threat. §1.3 now states what *kernel-enforced* does and does not cover. Separately, the **loopback bind is pinned** into the Tome drop-in — an inbound gap the PRD had never specified. | §1.3, §7.7 |
 | **[#29](https://github.com/markdlabrecque/tome/issues/29)** | Entity epoch stamps: one FK or two? | **Two** — `derivation_epoch_id` and `embedding_epoch_id`. Deduction, not a decision: the re-embed mode is *defined* as leaving Entities untouched, so one stamp would either never clear or restamp every Entity as freshly derived under rules that never touched extraction. #16's `embedding_model` is subsumed by the second, exactly as raw's was, because the epoch record carries the **digest** that a tag comparison cannot see. | §3.4, §4.1 |
 | **[#30](https://github.com/markdlabrecque/tome/issues/30)** | `id` type, and must the two tables match? | **`bigint` for both.** uuid's real purposes — generation outside the database, unguessability — do not apply. Decided by #26's invariant C making the id the *only* identifier in a log line; the ordering/size leak is accepted as negligible beside an unencrypted disk. **Obligation recorded:** the `text_prefix` guard is now load-bearing, since an off-by-one lands on a real neighbouring entry. | §3.2, §3.4, §5.9 |
 | **[#31](https://github.com/markdlabrecque/tome/issues/31)** | Where do Type Overrides and Type Suggestions live? | **Override: a column on `raw_entries`** (one per-entry value, history already in the log as a never-prunable class). **Suggestions: `enrichment_events` rows**, which #12 §7 already specified — the "derived" classification in #19/#20 is about migration cost, and the tension was manufactured. Retraction reach, pruning and wipe scope all follow automatically. | §3.2, §3.9 |
