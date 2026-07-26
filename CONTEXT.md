@@ -5,7 +5,7 @@ A personal memory-keeper: an immutable raw layer of manually captured entries, e
 ## Language
 
 **Raw Entry**:
-A single captured data point — text plus its embedding, plus capture metadata (timestamp, source client, situational context, embedding model version, enrichment state). The atomic unit of write; the sole source of truth for the entire store. Never written to directly by enrichment — only appended via the write path.
+A single captured data point — text plus its embedding, plus capture metadata (timestamp, source client, situational context, embedding model version, enrichment state). The atomic unit of write; the sole source of truth for the entire store. Never written to directly by enrichment — only appended via the write path. Immutable once written: it is never edited, and leaves only by Tombstone or Retraction. Bounded in size by what the embedding model can accept, since an entry that cannot be embedded is refused at capture rather than stored unsearchable.
 _Avoid_: Memory, note, record
 
 **Enrichment**:
@@ -25,7 +25,7 @@ An Entity's identity handle — a canonical, normalized string emitted by Enrich
 _Avoid_: Id, slug (the id is the database's; the Natural Key is the domain's)
 
 **Resolution Required**:
-The state of a Raw Entry whose Enrichment failed for a reason retrying cannot fix — unparseable model output, oversized entry, irreducible type ambiguity — and which now awaits a human decision. Never retried automatically; the counterpart to a transient failure, which is retried silently and never surfaced. Every Raw Entry is therefore either progressing or Resolution Required; it is never quietly stuck. Resolved in exactly three ways: retried (after the cause is fixed), given a Type Override, or Tombstoned.
+The state of a Raw Entry whose Enrichment failed for a reason retrying cannot fix — unparseable model output, oversized entry, irreducible type ambiguity — and which now awaits a human decision. Never retried automatically; the counterpart to a transient failure, which is retried silently and never surfaced. Every Raw Entry is therefore either progressing or Resolution Required; it is never quietly stuck. Resolved in exactly three ways: retried (after the cause is fixed), given a Type Override, or Tombstoned — a Retraction also ends the state, but by removing the entry altogether rather than resolving it. An oversized entry reaches this state only when capture could not measure it (the embedding attempt having timed out), since an oversized entry is otherwise refused at capture.
 _Avoid_: Failed (a transient failure is not Resolution Required), error
 
 **Type Override**:
@@ -33,8 +33,12 @@ A human-supplied classification recorded against a Raw Entry to settle an ambigu
 _Avoid_: Manual entity edit (there is no such thing — see Entity), forced type
 
 **Tombstone**:
-A Raw Entry whose content has been deliberately dropped — text, context and embedding nulled — while its identity, capture metadata and audit trail are retained. The outcome of deciding a Resolution Required entry can never be processed: too large for the enrichment model, or content the classifier cannot parse. Excluded from every Enrichment Run and from raw search by virtue of having no text. **Not a retraction**: it reaches only entries Enrichment could not process, never a mis-captured one, which enriches perfectly well.
-_Avoid_: Delete (the row and its history remain), skip (that is the action; this is the result)
+A Raw Entry whose content has been deliberately dropped — text, context and embedding nulled — while its identity, capture metadata and audit trail are retained. The outcome of deciding a Resolution Required entry can never be processed — in practice, content the classifier cannot parse, since an entry too large for the enrichment model can no longer be captured. Excluded from every Enrichment Run and from raw search by virtue of having no text. **Not a Retraction**: it reaches only entries Enrichment could not process, never a mis-captured one, which enriches perfectly well. A Tombstone still retains an excerpt of the dropped text in its audit row, so a Retraction is the escalation that removes even that.
+_Avoid_: Delete (the row and its history remain), skip (that is the action; this is the result), Retraction (see below)
+
+**Retraction**:
+The deliberate, permanent removal of a Raw Entry and everything derived from it: the row deleted outright, its audit rows cascaded with it, the Entities it fed deleted, and those Entities' surviving source entries requeued so they re-derive from what remains. The answer to a mis-capture — wrong information, something private, a duplicate — which is exactly the case a Tombstone cannot reach, because such an entry enriches perfectly well. Reaches an entry in any state, including one already Tombstoned. Irreversible, and leaves no trace in the store beyond a content-free ledger entry outside the database, whose only purpose is to keep a restore from resurrecting what was retracted.
+_Avoid_: Tombstone (that preserves identity and audit trail; this preserves nothing), delete, edit (raw is never edited)
 
 **Derivation Epoch**:
 The span since the current full Enrichment Run began — the period over which the present Entity layer was derived under one set of rules (prompt, entity-type definitions, models). The default window for schema-governance review, because a full re-run regenerates every Type Suggestion, so counts spanning epochs double-count and make a fixed type boundary look unfixed.
