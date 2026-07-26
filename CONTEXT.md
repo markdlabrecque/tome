@@ -40,6 +40,10 @@ _Avoid_: Delete (the row and its history remain), skip (that is the action; this
 The deliberate, permanent removal of a Raw Entry and everything derived from it: the row deleted outright, its audit rows cascaded with it, the Entities it fed deleted, and those Entities' surviving source entries requeued so they re-derive from what remains. The answer to a mis-capture — wrong information, something private, a duplicate — which is exactly the case a Tombstone cannot reach, because such an entry enriches perfectly well. Reaches an entry in any state, including one already Tombstoned. Irreversible, and leaves no trace in the store beyond a content-free ledger entry outside the database, whose only purpose is to keep a restore from resurrecting what was retracted.
 _Avoid_: Tombstone (that preserves identity and audit trail; this preserves nothing), delete, edit (raw is never edited)
 
+**Retraction Ledger**:
+The append-only, content-free record of every Retraction, held outside the database as a file so that restoring the database cannot restore it. Its sole purpose is to name the Raw Entries that must not exist; it is replayed against the store on every start, not only after a restore, so a Retraction cannot be undone by forgetting to replay it. Being content-free, it is safe to retain indefinitely and travels with the backups. Editing it is therefore the only way to reverse a Retraction: remove an entry's line, then restore. Its loss is silent — nothing else would notice, and the guarantee simply stops holding — which is why it belongs in the backup set rather than beside it.
+_Avoid_: Audit log (that is `enrichment_events`, inside the database and cascaded away by Retraction), tombstone record, backup
+
 **Derivation Epoch**:
 The span since the current full Enrichment Run began — the period over which the present Entity layer was derived under one set of rules (prompt, entity-type definitions, models). The default window for schema-governance review, because a full re-run regenerates every Type Suggestion, so counts spanning epochs double-count and make a fixed type boundary look unfixed.
 _Avoid_: Generation, version
