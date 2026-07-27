@@ -19,7 +19,7 @@ Since the previous handoff, **all three Fedora-side obligations have been worked
 
 | # | What | State |
 |---|---|---|
-| **#33** | MacBook on-machine confirmations | **Running on the Mac, concurrently** |
+| **#33** | MacBook on-machine confirmations | **Both gates PASS.** ⚠ Evidence unpushed; some items uncovered |
 | **#34** | `source` provenance may arrive `None` | **Verified.** Decisions open; one has a deadline |
 | **#35** | §13.4's 0.7 confidence threshold measures as inert | **Measured.** Both mechanisms fail. Decision open |
 | **#36** | The unfenced entity types are the confusion sinks | **Measured, PASS.** Wording ratification open |
@@ -57,13 +57,36 @@ Full result in [`research/ladder-probe/CONFIDENCE-FINDINGS.md`](./research/ladde
 
 **Loose end closed rather than left open:** my unconditional rewrite produced *fewer* fires than the gated prompt (zero), which the pre-registration did not anticipate and which pointed at my own wording rather than the model. A third wording — `prompt-forced.txt`, opt-out removed, schema hint changed off *"…if any"* — was run to settle it. **Also 0.0%, both models, 608 paired entities.** Three wordings, ~2,950 entities, empty on all of them: the failure is not an artifact of how it was asked for.
 
-### 4. #34's remaining decisions — alongside #33
+### 4. #34's remaining decisions — M4 is now answered
 
-What `source` records when client info is absent, whether the column earns its place on a single-device install, and the consequence for §7.5's stateful-sessions argument. Unchanged by tonight except that the **provenance risk is low**: no client examined can omit `clientInfo`. **M4** — whether Claude Desktop omits it — is the one open input, and Gate A on the Mac answers it for free.
+What `source` records when client info is absent, whether the column earns its place on a single-device install, and the consequence for §7.5's stateful-sessions argument.
+
+**M4 is closed.** Claude Desktop sends `{"name": "claude-ai", "version": "0.1.0"}` over stdio. So no client omits client info and the provenance risk stays **low** — confirming the Fedora assessment. But two properties make `source` weaker than its name suggests:
+
+- **`version` is a placeholder.** The app is 1.24012.9 and announces `0.1.0` — which is also python-sdk's fallback string, so it is doubly uninformative. Nothing can be gated on it.
+- **`name` is `claude-ai`, not `claude-desktop`.** It separates Desktop from `claude-code` and from nothing else. `source` carries a real but **coarser** bit than #13 assumed.
+
+**Correction to my own earlier claim.** The #34 verification said a server-minted process-lifetime UUID still works as a replacement for the absent `session_id`. Gate A shows that UUID has **three different grains depending on entry point**: per-app-launch (Desktop stdio), per-session (Claude Code stdio, fresh PID each `claude -p`), and **per-server-lifetime on the loopback HTTP path — one PID served 8 sessions over 944 s.** Since HTTP is the chosen path for Claude Code, a process UUID collapses to a single value across every session there, so §3.8's fallback-judgement signal gets **no session grain on that path either**. The proposed fix is weaker than I stated and §3.8 needs a different mechanism or needs to lose the claim.
+
+### 5. New decisions the MacBook surfaced
+
+- **No off-device backup exists.** `tmutil destinationinfo` reports **no destinations configured**. This contradicts a PRD *assumption* rather than a number — §8.2's backup set and #33's "backups off-device, so the seven-dump rotation does not land here" are both currently unsupported. Needs hardware or an explicit decision.
+- **Pin `OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE` explicitly.** On the Mac they arrived from Homebrew's LaunchAgent rather than from a decision.
+- **Claude Desktop never restarts a dead stdio server.** `kill -9` → `Server disconnected` in the log and nothing else; 90 s at zero processes, a new chat window did not respawn, only an app relaunch recovered. Combined with per-app-launch lifetime, **one crash silently costs the rest of that launch.** The stdio entry point must be effectively unkillable — no exception escaping to top level, no fatal path on a Postgres connection failure. That is a design constraint, not a checklist item.
 
 ## Measured facts — do not re-derive these
 
-**Capture path, Fedora, `bge-m3`, `num_batch: 8192`, against §4.5's 5,000 ms budget:** ceiling-size entry (1,839 tok) warm **184 ms**; cold incl. load **1,261 ms**; query embed **87 ms**. ~27× headroom.
+**Capture path, `bge-m3`, `num_batch: 8192`, against §4.5's 5,000 ms budget** — Fedora, then MacBook (M4 Pro, 16 GPU cores):
+
+| | Fedora | Mac | ratio |
+|---|---|---|---|
+| ceiling-size entry (1,839 tok), warm | 184 ms | **447 ms** (n=25, sd 5.7) | 2.43× |
+| same, cold incl. load | 1,261 ms | **1,376 ms** | 1.09× |
+| query embed, warm | 87 ms | **99 ms** | 1.14× |
+
+**Gate B PASS: 11.2× headroom warm, 3.6× on a cold first capture**, worst single observation 1,587 ms.
+
+⚠ **One caveat in the Mac report is wrong, and it matters.** It states Fedora lacked `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`, and concludes every Mac-vs-Fedora ratio in the project is therefore not a pure hardware comparison. **Verified on this box: Fedora has both**, in `/etc/systemd/system/ollama.service.d/90-pi-local-rocm.conf`, mtime **2026-07-22** — before any benchmarking in this project. The flags are common to both machines and the comparison stands. The warm ratio does overshoot #32's projected 1.83–2.22× band at 2.43×, but that needs a different explanation.
 
 **Ladder probe (8 paired draws of 40):** `qwen3:14b` 1.01 ent/subj, 99.1% coverage, 41 tok/s. `qwen3:4b` 0.95, 92.5%, 95 tok/s, **7.5% of subjects produce no entity**. `qwen3:8b` worst rung, unusable in both decoding configs.
 
