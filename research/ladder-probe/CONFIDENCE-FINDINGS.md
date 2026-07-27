@@ -5,7 +5,7 @@ measurement half of issue [#35](https://github.com/markdlabrecque/tome/issues/35
 pre-registered in `CONFIDENCE-CRITERIA.md` before the first arm ran; `CRITERIA.md`'s fourth,
 fifth and sixth amendments govern how many independent observations each arm carries.
 
-Design: **2 × 2 × 2** — `{control, fenced}` prompt × `{gated, unconditional}`
+Design: **2 × 2 × 2**, plus a third `considered_types` wording added after the first result — `{control, fenced}` prompt × `{gated, unconditional}`
 `considered_types` × `{qwen3:14b, qwen3:4b}`, eight draws each, against
 `corpus_ambiguous.py` (40 ambiguous / 20 length-matched controls / 24 short controls / 16
 fence-quarantined). The four `qwen3:14b` conditions were replicated.
@@ -67,7 +67,7 @@ corpus. `qwen3:14b`, `ambiguous` stratum mean `type_confidence`:
 asking for it.** A self-report that moves 0.11 on rewording, while the separation it is
 supposed to express stays within ±0.014, is not carrying information about the input.
 
-## 2. `considered_types` is never populated — and the rewrite made it worse
+## 2. `considered_types` is never populated, across three wordings
 
 | arm | paired entities | non-empty `considered_types` |
 |---|---|---|
