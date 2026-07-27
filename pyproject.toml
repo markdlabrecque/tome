@@ -1,0 +1,22 @@
+[project]
+name = "tome"
+requires-python = ">=3.12"
+version = "0.0.0"
+
+dependencies = [
+    # Pinned <2 deliberately, 2026-07-26. See #34's verification comment.
+    #
+    # mcp 2.0 stable ships 2026-07-28. Two things break across that line:
+    #   1. `mcp.server.fastmcp` no longer exists (verified: ModuleNotFoundError).
+    #   2. On the 2.x "modern era", a clientInfo-less request is SERVED with
+    #      client_params=None. No server-side setting prevents it, so PRD
+    #      section 7.5's provenance mechanism has no floor under it there.
+    #
+    # This bound exists so that `uv add`/`uv sync` after Tuesday does not
+    # silently resolve 2.x. Lifting it is a decision with a PRD edit attached
+    # (sections 7.5, 9.4, 13.2), not a version bump.
+    #
+    # It carries its own clock: 1.x caps at protocol 2025-11-25, so a 1.x Tome
+    # will refuse a client that opens with a modern envelope.
+    "mcp>=1.28,<2",
+]
