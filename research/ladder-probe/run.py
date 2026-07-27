@@ -4,11 +4,12 @@
 Criteria are fixed in CRITERIA.md, committed before this ran. This script counts nothing
 and judges nothing — it only calls models and records what came back.
 """
-import json, os, random, sys, time, urllib.request
+import importlib, json, os, random, sys, time, urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from corpus import SUBJECTS
+# CORPUS=corpus_ambiguous switches to #35's stratified corpus. Default is unchanged.
+SUBJECTS = importlib.import_module(os.environ.get("CORPUS", "corpus")).SUBJECTS
 
 HERE = Path(__file__).parent
 # Parameterised for the #36 A/B (third amendment). Defaults reproduce the original run
