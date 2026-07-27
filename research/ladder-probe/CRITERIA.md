@@ -138,3 +138,124 @@ It measures **extraction recall and composition on synthetic text**. It does not
 retrieval quality, and it is not a judged set — §13.1's open question needs 90 days of real
 usage and remains open regardless of the outcome here. A PASS licenses trying a smaller
 model, not skipping the eventual judged set.
+
+---
+
+# Third amendment: the #36 prompt-fence A/B
+
+**Written and committed before the fenced arm ran.** Issue
+[#36](https://github.com/markdlabrecque/tome/issues/36) proposes adding `_Avoid_` lines to
+the entity types that lack them, and predicts a measurable gain in classification accuracy.
+This section fixes how that gain is measured, and records what the baseline actually says —
+which is not what #36 says it says.
+
+## The instrument had no type-accuracy scorer
+
+`analyze.py` scores recall and composition. **It never scored classification against
+ground truth.** #36's confusion table was produced ad hoc during the spike and was never
+committed, so it could not be re-run. `type_accuracy.py` is added here to close that gap,
+and its first job was to reproduce the published table from the committed raw JSONL.
+
+## What reproduces, and what does not
+
+Scoring `raw.jsonl` (grammar-constrained; the configuration in which both `qwen3:14b` and
+`qwen3:4b` ran clean):
+
+- **The accuracies reproduce exactly** — 95.6% / 89.2% — under one specific matching
+  scheme: `analyze.py`'s coverage loop, where each drawn subject takes its best-overlapping
+  emitted entity and reuse is allowed. That pins the scheme #36 used.
+- **The confusion table does not reproduce.** Under that same scheme the wrong arrivals
+  total **46**, not 31: Fact 17, Project 12, Person 8, Preference 3, Event 3, Decision 2,
+  Commitment 1. #36's "Decision 0, Commitment 0 — the two types with the sharpest `_Avoid_`
+  wording absorb none at all" is false; they absorb 2 and 1.
+
+## The matching scheme inflates the error count, and it does so unevenly
+
+Allowing reuse lets a subject the model **omitted entirely** match some *other* subject's
+entity, which is then scored as a misclassification. Splitting the errors by overlap
+separates the two failures:
+
+- **Overlap ≥ 0.6** — the model emitted an entity for *this* subject and gave it the wrong
+  type. A real misclassification. **36 of the 46.**
+- **Overlap < 0.6** — the subject's best match is a different subject's entity. An
+  **omission**, wearing a misclassification's clothes. **10 of the 46**, and *8 of those 10
+  land on Person* (`team-restructure` matching `sora-nakagawa` at 0.29, `api-clients`
+  matching `rafe-quillon` at 0.29).
+
+**Consequence for #36's central claim.** Restricted to real misclassifications, the
+destinations are **Fact 17, Project 11, Preference 3, Decision 2, Event 2, Commitment 1 —
+and Person 0.** Person is not a confusion sink; its six arrivals in #36 were omissions.
+The claim that the three unfenced types are *exactly* the three sinks is **two-thirds
+right**: Fact and Project absorb 28 of 36 (78%), the four fenced types absorb 8, and Person
+absorbs none.
+
+Two further splits #36's summing hides:
+
+- **Project is a `qwen3:4b` phenomenon.** All 12 Project arrivals are 4b's; the control has
+  none in the constrained run and two in the unconstrained one.
+- **At `qwen3:14b` — the model actually being shipped — there are 10 real
+  misclassifications, and `Event → Fact` is 6 of them.** Essentially the whole error budget
+  of the shipping model is one confusion.
+
+`Event → Fact` is the one finding that survives every cut: top error at both model sizes
+(6 at 14b, 8 at 4b), and it **replicates across decoding configurations** — 5 at 14b in
+`raw-unconstrained.jsonl`, scored independently. That is what the fence is aimed at.
+
+## The change under test
+
+`prompt-fenced.txt`, diffed against `prompt.txt`. Three edits, no others:
+
+1. **`Fact` gains an `Avoid: Event` line** plus one operational clause — *"Choose Fact only
+   after every other type has been ruled out"* — which is what "a catch-all, not a default"
+   has always meant and never said in a form a model can act on.
+2. **`Project` gains an `Avoid: Event` line.**
+3. **`Event`'s definition gains one clause:** *"A completed occurrence remains an Event; it
+   does not become a Fact once it is over."* Aimed directly at the measured failures, which
+   are past occurrences read as settled state.
+
+**`Person` deliberately gains nothing**, against #36's item 1. It has zero real arrivals at
+either model size, so a fence there would be written against a confusion that has never been
+observed — unfalsifiable by this instrument, and it would dilute the lines that do carry
+weight. If the corpus is later extended and Person arrivals appear, this is revisited.
+
+**Worked examples use scenarios absent from the corpus** (a ticketing system, an office
+move). Quoting a corpus subject in the prompt would teach to the test — the defect #24's
+prompt had, where example keys were fabricated back out as entities. Checked
+mechanically: no corpus subject shares more than two content words with the added text.
+
+## Held fixed
+
+Corpus, the eight seeds and their draw contents and order, `temperature: 0`,
+`num_ctx: 16384`, `num_predict: 4096`, `seed: 42`, `think: false`, `keep_alive: 0`, Ollama
+on the same box. **The prompt bytes are the only thing that differs.** The fenced prompt is
+~90 tokens longer, which is a confound only for cost, and cost is not what is being claimed.
+
+Both arms run **grammar-constrained**, matching `raw.jsonl`, because that is the only
+configuration in which both models produced scorable output. `qwen3:14b` additionally runs
+**unconstrained**, matching `raw-unconstrained.jsonl`, so the headline claim has a
+replication rather than a single cell. `format: "json"` remains a measured hazard
+(second amendment) and its output is checked for degeneration rather than assumed clean.
+
+## Pre-registered thresholds
+
+The change **PASSES** if, against the same-arm baseline:
+
+- **`Event → Fact` falls at both arms**, and falls in the 14b unconstrained replication; AND
+- **type accuracy on confidently-matched subjects (overlap ≥ 0.6) rises at both arms**; AND
+- **the errors are removed, not relocated** — no single new confusion appears at a count
+  greater than the reduction in `Event → Fact`; AND
+- **recall does not pay for it**: `analyze.py` coverage falls by no more than 2 pp and
+  ent/subj by no more than 0.05 at either arm.
+
+**PARTIAL** — `Event → Fact` falls and accuracy rises at 14b but not at 4b, or accuracy
+rises while recall degrades within the bounds above. Interpretation: keep the Fact fence,
+re-examine the others.
+
+**FAIL** — `Event → Fact` does not fall at 14b, or total real misclassifications rise at
+either arm, or recall breaches the bounds. Interpretation: the fence is not the mechanism,
+and #36's premise is wrong rather than merely overstated.
+
+**A result where accuracy rises but `Fact` share does not fall is explicitly interesting**
+rather than contradictory: §4.9 treats rising Fact share as the junk-drawer signature, and
+this probe can now say whether that signature tracks classification error or is independent
+of it.
