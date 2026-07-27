@@ -373,3 +373,32 @@ and should not be asserted.
 
 **So the 4b result is reported as directional and the 14b result as measured.** Any future
 run of this probe should hash payloads before treating replicate count as sample size.
+
+---
+
+# Sixth amendment: determinism varies by *prompt*, not only by model
+
+The fifth amendment concluded determinism is model-dependent — `qwen3:4b` bit-exact,
+`qwen3:14b` not. The #35 replicates show that was still too narrow.
+
+Hashing `qwen3:14b`'s response payloads across two replicates of each #35 condition:
+
+| condition (all `qwen3:14b`) | r1 vs r2 |
+|---|---|
+| control prompt, gated | **different** (`1ef2d322` / `9ace68cf`) |
+| control prompt, unconditional | **different** (`1330411d` / `3a7ece2a`) |
+| fenced prompt, gated | **identical** (`b51e79d1`) |
+| fenced prompt, unconditional | **identical** (`a92b1d0b`) |
+
+Same model, same box, same options, same corpus — and the **fenced** prompts reproduce
+bit-exactly while the control prompts do not. Note this is the *opposite* of what the same
+model did on `corpus.py`, where three fenced replicates produced three distinct payloads.
+
+**So determinism is a property of the whole configuration — model × prompt × corpus — and it
+is not predictable from any one of them.** The practical rule stands and generalises:
+
+> **Hash the payloads. Replicate *files* are not replicate *observations*, and which
+> conditions happen to be reproducible cannot be guessed in advance.**
+
+Consequence for #35's numbers: the control-prompt arms carry two independent observations
+each and the fenced arms carry one. Reported that way.
