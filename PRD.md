@@ -89,7 +89,7 @@ v1 is **answer-when-asked**. Tome never volunteers content; the only unprompted 
 
 **Person, Project, Preference, Decision, Fact, Commitment, Event.** Defined in CONTEXT.md.
 
-**Type Suggestion** is governance metadata, *not* an eighth Entity Type — it is how classification strain is recorded for review (§4.7).
+**Type Suggestion** was governance metadata, *not* an eighth Entity Type. **Enrichment no longer writes them** — both kinds proved unreachable (§3.9); the review loop reads the corpus probe and the `Fact` pile instead (§2.2).
 
 Adding or retiring a type has **zero migration cost** by design: entities are fully re-derivable, so it is a definition change plus a full Enrichment Run. The cost is the run's hours, not a migration.
 
@@ -99,13 +99,26 @@ Adding or retiring a type has **zero migration cost** by design: entities are fu
 
 Manual, periodic, exception-driven review — no automated schema evolution. The loop is:
 
-1. `review_schema` (§5.7) reports per-type counts, mean confidence, a confidence histogram, and aggregated Type Suggestions over a time window.
-2. Recurrence is the signal. A **recurring `ambiguous` pair** is evidence a type *boundary* is wrong, not that one guess was; a recurring `no_fit` guess is evidence a type is missing.
+1. **Re-run the ground-truth corpus probe** (`research/ladder-probe/`) against the current prompt. It reports type accuracy and a confusion table scored against known answers.
+2. Recurrence is the signal, and it arrives from two places, neither of which is a model self-report:
+   - **A recurring confusion pair in the probe** is evidence a type *boundary* is wrong, not that one guess was.
+   - **A recurring theme inside `Fact`** is evidence a type is *missing*. `Fact` is the designed catch-all, so what accumulates there is the homeless-subject signal. Read it with `search_entities({ entity_type: "Fact" })`.
 3. The fix is sharpening the definitions in CONTEXT.md (or adding/retiring a type) and re-running.
+
+**This loop was rebuilt on measurement, and the previous version is worth recording because it read as instrumented when it was not.** It ran off `review_schema`'s per-type counts, mean confidence and confidence histogram plus model-emitted Type Suggestions — **four signals, three of them measured inert and the fourth unreachable by construction** (§13.3):
+
+| former signal | why it was cut |
+|---|---|
+| per-type counts as a junk-drawer detector | `Fact` share is a *net* quantity while misclassification is *gross*; the fence removed 11 of 14 `Event → Fact` errors and moved Fact share **less than the control's own run-to-run noise** (§4.9). |
+| mean confidence, confidence histogram | Values span 0.14–0.15 across every arm measured, and return exactly `1.000` when the prompt stops naming a number — a function of the sentence asking for it, not of the input. |
+| a recurring **`ambiguous`** pair | Its trigger required a confidence below threshold, or a non-empty `considered_types`. **Zero of ~2,350 entities fell below 0.7; `considered_types` was empty on ~2,950 entities across three wordings and two models.** The pair could never be written. |
+| a recurring **`no_fit`** guess | **Unreachable by construction, not by measurement.** `no_fit` fires when a subject fits *no* type, while `Fact` is *defined* as the type for whatever fits no other type. A catch-all and a missing-type detector are mutually exclusive; nothing ever reports being homeless. |
+
+**What the probe cannot see, stated so it is not over-trusted:** it measures the prompt against a *synthetic* corpus, so it detects that a boundary is weak in general — never that *your actual captures* are being mistyped. That question needs the judged set (§10.4).
 
 Nothing is ever marked as reviewed or dismissed. Dismissal would delete exactly the evidence the loop reads. There is no `dismissed_at` column and no review watermark table.
 
-*Source: #10, #12 §7, #14 §6, #17.*
+*Source: #10, #12 §7, #14 §6, #17; rebuilt by #35, #36.*
 
 ---
 
@@ -118,7 +131,7 @@ Every table falls into one of three classes, and the class decides how it is mig
 | Class | Members | Migration | Backup | Retention |
 |---|---|---|---|---|
 | **Durable input** | `raw_entries`, `enrichment_events`, Type Overrides | Needs care — losing it loses the system | Yes | Never expires |
-| **Derived** | `entities`, Type Suggestions | Never needs a *data* migration: DDL, then reset all raw to `pending` and the next run backfills | Yes, but only to avoid paying §1.5's re-derivation cost | Re-derived, not retained |
+| **Derived** | `entities` | Never needs a *data* migration: DDL, then reset all raw to `pending` and the next run backfills | Yes, but only to avoid paying §1.5's re-derivation cost | Re-derived, not retained |
 | **Sample** | `query_log` | Not re-derivable, but losing it costs at most 90 days that refill on their own | **No** — excluded from every dump | 90 days |
 
 The third class exists because a query log is neither: it cannot be re-derived, but it is not precious either. That is precisely why not backing it up is correct rather than a compromise.
@@ -137,7 +150,7 @@ Append-only. The only mutations are `enrichment_state` and its companions, a Typ
 | `embedding` | `vector(1024)`, **nullable** — capture may defer it (§4.5). `SET STORAGE PLAIN`. Computed over `text` **alone**. | #16, #25 §2 |
 | `embedding_epoch_id` | FK to `derivation_epochs`. Replaces #10's `embedding_model` text column: the epoch record already names the model *and* carries its digest. **Written at capture, and never reconstructable** — see the write-once warning below. | #17 |
 | `captured_at` | **Caller-supplied and required**, no server default, so backfills are expressible. The server flags a wild disagreement with its own clock rather than silently accepting it (§11). | #11, #15 §9 |
-| `source` | Capturing **client type only**, read from `clientInfo.name` at `initialize` and stored **verbatim**. **Nullable** — `NULL` means *not recorded*, never a sentinel (§9.4). The two real values are `claude-code` and **`claude-ai`** (Desktop; *not* `claude-desktop`, which no client sends). Never device. Never agent-supplied. **Never read to change behaviour.** | #10, #13, #34 |
+| `source` | Capturing **client type only**, read from `clientInfo.name` at `initialize`, whitespace-trimmed, then stored verbatim. **Nullable** — `NULL` means *not recorded*, never a sentinel; written when the name is absent, empty, >64 chars or holds control characters (§9.4). The two real values are `claude-code` and **`claude-ai`** (Desktop; *not* `claude-desktop`, which no client sends). Self-reported and unverifiable. Never device. Never agent-supplied. **Never read to change behaviour.** | #10, #13, #34 |
 | `enrichment_state` | `pending` \| `enriched` \| `failed` \| `resolution_required` \| `skipped`. There is deliberately **no `in_progress`** state (§4.6). | #12 §4, #14 §4 |
 | `last_enriched_at` | | #10 |
 | `attempt_count` | N = 3 before an entry leaves normal incremental runs. Capture-time embed timeouts **never** count toward it. | #12 §4–5 |
@@ -187,8 +200,8 @@ Read-only from outside. Written **only** by enrichment, in the per-entry transac
 | `embedding` | `vector(1024)`, **`NOT NULL`**, `SET STORAGE PLAIN`. Over `summary`. Written inline in phase 2 in the same short transaction, and **re-embedded on every merge** — the merge destroys the old summary, so a stale vector would point at prose that no longer exists. | #16 §3 |
 | `embedding_epoch_id` | FK to `derivation_epochs`, the **embedding axis** — the re-embed handle. Subsumes the `embedding_model` column #16 originally specified, the same way it subsumed raw's. | #16 §3, #17 |
 | `derivation_epoch_id` | FK to `derivation_epochs`, the **extraction axis** — which rules produced this Entity. Distinct from the above because `--reembed` rewrites the vector while leaving the derivation untouched, which is the whole point of the mode; a single stamp would either never clear or restamp every Entity as freshly derived. Also the stamp `get_enrichment_status`'s epoch grouping reads. | #17, #29 |
-| `type_confidence` | The classifier's confidence in `entity_type`. Surfaced under `debug`; feeds `review_schema`'s histogram and mean. | #12 §2 |
-| `considered_types` | The types that also fit. Surfaced under `debug`; feeds the `ambiguous` Type Suggestion. | #12 §2 |
+| `type_confidence` | ⚠ **Slated for removal — nothing reads it.** The histogram and mean it fed are gone (§5.7), the 0.7 gate is gone (§13.4) and the stickiness margin is gone (above). Measured to be a function of the prompt sentence requesting it rather than of the input (§13.3). Retained in this table only until one ablation confirms that dropping it from the prompt does not move type accuracy. | #12 §2, #35 |
+| `considered_types` | ⚠ **Slated for removal on the same measurement.** It fed the `ambiguous` Type Suggestion, which is gone (§3.9). Measured **empty on ~2,950 entities** across three wordings and two models — present on every entity, always `[]`. | #12 §2, #35 |
 | `source_entry_ids` | Every Raw Entry that contributed. Appended on merge. Read by `get_history` as `related_ids`, and by the retraction cascade as its match predicate. **A purged id left here is a dangling reference**, which is why the cascade is structural rather than statistical (§8.3). | #12 §1, #18 §3 |
 | `last_enriched_at` | Returned under `debug` on `search_entities`. | #11 |
 
@@ -199,9 +212,17 @@ Read-only from outside. Written **only** by enrichment, in the per-entry transac
 
 Episodic types therefore de-facto never merge, purely as a consequence of key specificity rather than a special case in code. **Key-specificity guidance is asymmetric on purpose:** a too-specific key yields a duplicate — graceful and harmless; a too-generic one **conflates** two distinct things and loses information in the merged summary. So every type biases over-specific, and Person/Project are the only deliberate exceptions.
 
-**Type stickiness.** Resolution looks up `natural_key` *ignoring* `entity_type` first. If an Entity exists under a different type, the existing type wins and the extraction merges into it — unless the new classification's confidence is substantially higher: **≥ the incumbent's + 0.20, and ≥ the global threshold**, both a starting point (§13.4). The margin stops a 0.71-vs-0.70 flicker from re-typing an Entity on every run; the floor stops two low-confidence guesses from re-typing on a technicality. Without this, a subject classified Preference in March and Decision in July fragments into two Entities and never merges, defeating the merge design exactly where it should help.
+**Type stickiness is absolute.** Resolution looks up `natural_key` *ignoring* `entity_type` first. If an Entity exists under a different type, **the existing type wins, unconditionally**, and the extraction merges into it. Without this, a subject classified Preference in March and Decision in July fragments into two Entities and never merges, defeating the merge design exactly where it should help.
 
-**Accepted caveat.** Merge is order-dependent, so folding the same entries in a different sequence yields differently-worded summaries. "Fully re-derivable" therefore weakens to **re-derivable up to summary wording** — same Entity set, same `source_entry_ids`, prose may differ.
+**The confidence-margin override is gone, and it was never reachable.** §13.4 had set it at *"≥ the incumbent's + 0.20, and ≥ the global threshold"*. Measured across every arm of the ladder and ambiguity probes, the model's whole `type_confidence` **range spans 0.14–0.15** — so a margin of 0.20 cannot be satisfied *wherever* the values sit, and any margin small enough to fire is satisfied by rounding noise between 0.9 and 0.95. There is no value that behaves like a margin, so the knob is deleted rather than re-guessed. (#35)
+
+**The sole re-typing path is therefore human:** `resolve_entry({ set_type })`'s Type Override, which is a durable input to derivation and survives a full run. This matches §2.2's governance — manual, periodic, exception-driven — rather than straining against it.
+
+**Consequence, because `entity_type` is half the identity key.** `UNIQUE (entity_type, natural_key)` is the merge target, so a type decision *is* which Entity this is — and with the override gone, an Entity's type is fixed by one classification of whichever source entry arrived first. Full mode is "wipe, then the ordinary loop" (§4.1), so it **re-decides** that type from a fresh classification of the earliest entry. At a measured 2.3–3.2% misclassification rate that varies run to run (9/10/11 real errors across three *identical* control runs), a full run can move an Entity to a different `(entity_type, natural_key)` — a different identity, not a re-worded version of the same one. See §3.8, whose keying choice this bears on, and §13.2.
+
+**A behavioural override was considered and deferred, not rejected:** re-type on a *majority vote* of the source entries' own proposed types ("5 of 6 entries say Decision, the incumbent says Preference"). It is a count rather than a threshold, needs no self-report, and its input is derived data a full run backfills. Deferred because it would calibrate against a rate measured only on a synthetic corpus — the same reasoning §5.7 used to reject per-type thresholds. (#35)
+
+**Accepted caveat, and it is wider than summary wording.** Merge is order-dependent, so folding the same entries in a different sequence yields differently-worded summaries. And because absolute stickiness makes an Entity's type a function of one classification of its earliest entry (above), a full run can re-decide that type — which, `entity_type` being half the identity key, changes *which Entity it is*. "Fully re-derivable" therefore weakens to **re-derivable up to summary wording, and up to the identity of the ~3% whose type is unstable** — same `source_entry_ids`, prose may differ, and a small minority may come back under a different key. **Not** "same Entity set", which is what this said before #35 measured the classification variance. (#35)
 
 **Fidelity is inversely proportional to merge depth**, which puts the loss where it hurts least: Event/Decision/Fact summaries are first-generation and near-verbatim, while Person/Project are the telephone game by design — and those are the ones asked about broadly, where an eroded-but-on-topic summary still works. Unchecked (§13).
 
@@ -227,7 +248,7 @@ One row per `(run_id, raw_entry_id, stage, outcome, detail JSONB)`, written **in
 - **merges, with before/after summary text** in the detail — the merge is destructive to the old summary, so without this an over-merge is invisible after the fact
 - capture-time embed timeouts later filled
 - failed → retry → succeeded chains, each distinct error preserved
-- Type Suggestions logged, human decisions from `resolve_entry`, Tombstone reason codes and excerpts, and the path of the pre-wipe dump on a full run
+- human decisions from `resolve_entry`, Tombstone reason codes and excerpts, and the path of the pre-wipe dump on a full run *(Type Suggestions were once logged here too; they are gone — §3.9)*
 
 **The invariant, and it has no carve-out:** ***`enrichment_events` is append-only for the lifetime of its entry.*** Retraction's `ON DELETE CASCADE` is its sole deletion path. This is cleaner than it would have been under a tombstone-flavoured retraction, which would have needed a DELETE-or-redact exception to the one table hardened against mutation.
 
@@ -311,7 +332,7 @@ Written on **every** search, always, with **no `debug` gate**. Adds zero MCP too
 | `derivation_epoch_id` | FK — one, not two, because the epoch is already itemised. |
 | `results` | JSONB. Entities as **`(entity_type, natural_key, score)`**; raw as `(entry_id, score)`. |
 
-**Keyed on `(entity_type, natural_key)`, never entity ids.** Full mode and the retraction cascade both reassign every entity id, while the unique constraint keeps the *domain* identity stable — so an id-keyed log would be invalidated by precisely the event most likely to prompt a replay. **Raw results keep ids**, a deliberate asymmetry: raw entries are immutable and have no natural key, and it gives retraction a precise cascade target.
+**Keyed on `(entity_type, natural_key)`, never entity ids.** Full mode and the retraction cascade both reassign every entity id, while the unique constraint keeps the *domain* identity **far more** stable — so an id-keyed log would be invalidated by precisely the event most likely to prompt a replay. **Not perfectly stable, and the earlier claim that it was is withdrawn:** with type stickiness absolute (§3.4), a full run re-decides an Entity's type from a fresh classification of its earliest entry, and `entity_type` is half this key — so the ~3% whose classification is unstable come back under a *different* key and their logged rows no longer resolve. The choice still holds, because entity ids are reassigned for **100%** of rows and natural keys for ~3%. (#35) **Raw results keep ids**, a deliberate asymmetry: raw entries are immutable and have no natural key, and it gives retraction a precise cascade target.
 
 **The stored scores are not a cross-time baseline, and that is fine.** Summaries re-derive on every merge, so the same natural key has a different summary and a different vector months later; a replay cannot diff new scores against logged ones because the corpus moved underneath them. A fair comparison runs **both** models against **today's** corpus, which is always possible because both are local and the query was kept. So the query text is the asset and the stored results exist for a different job — making a query *reviewable* ("that one came back wrong"), which is the only way judgements ever get made. **Stated explicitly so nobody builds the naive score-diff.**
 
@@ -319,36 +340,34 @@ Written on **every** search, always, with **no `debug` gate**. Adds zero MCP too
 
 **Both tools are logged, which is forced** — the fallback signal below cannot exist unless `search_raw` calls are logged too. It also happens to be right for the tripwire: no ANN index exists on *either* layer, and raw rows grow faster than entities, so raw is what hits the wall first.
 
-**Judgements: a session id, and nothing else.** Sessions are stateful by force (§7.5), so the server has a session identity at every `tools/call`. The tool description names the trigger *reach for `search_raw` when scores come back uniformly low* — so `search_raw` shortly after `search_entities` in the same session **is** a relevance judgement, revealed rather than self-reported. One column turns it into a negative signal: here are the queries entity search failed on. **Noisy, and recorded as such** — there is also a *structural* reason to fall back (the entry may be newer than the last run), so some fallbacks are not quality failures; the optional date range gives a partial filter.
+**Judgements: a session id, and nothing else.** The server has a session identity at every `tools/call`. *(This used to be stated as a consequence of sessions being stateful by force (§7.5). It is not — the id is Tome's to obtain either way, and #34 found the dependency ran only one way: `source` needs statefulness, this does not.)* The tool description names the trigger *reach for `search_raw` when scores come back uniformly low* — so `search_raw` shortly after `search_entities` in the same session **is** a relevance judgement, revealed rather than self-reported. One column turns it into a negative signal: here are the queries entity search failed on. **Noisy, and recorded as such** — there is also a *structural* reason to fall back (the entry may be newer than the last run), so some fallbacks are not quality failures; the optional date range gives a partial filter.
 
-**"Same session" has three different grains, and the coarsest is why the predicate is time-bounded.** Measured (#33 Gate A, #34):
+**"Same session" is not the same as "same retrieval episode", so the predicate is time-bounded.** A client's MCP session can outlive a single act of searching by an arbitrary margin — under every transport, and by a margin that depends on how the client manages its connection rather than on anything Tome controls. Unbounded, the rule would read a `search_raw` as a judgement on a `search_entities` from an unrelated episode hours earlier. So the pairing rule is **same session *and* within a bounded interval** — a starting-point value (§13.4), not a measurement.
 
-| Entry point | One session lasts |
-|---|---|
-| Claude Code over loopback HTTP | one client session — 8 sessions were served by one server process over 944 s |
-| Claude Code over stdio | one `claude -p` invocation — a fresh process each time |
-| **Claude Desktop over stdio** | **one app launch** — which can be days, and spans every conversation in it |
+**Store the session id raw and apply the interval at read time**, so the bound is re-cuttable against logged history rather than baked into rows. Note the re-cut reaches back only as far as §8.5's exact 90-day `query_log` retention, not over all history.
 
-The Desktop grain is the problem: `search_raw` in one conversation would otherwise read as a judgement on a `search_entities` from an unrelated conversation hours earlier. So the pairing rule is **same session *and* within a bounded interval** — a starting-point value (§13.4), not a measurement. **Store the session id raw and apply the interval at read time**, so the bound is re-cuttable against logged history rather than baked into rows.
-
-**The session id is minted by Tome, not lifted from the transport.** `session_id` is `None` on stdio, so there is nothing to read; a process-lifetime UUID gives exactly the grains in the table above. That the id is a *process* identity rather than a conversation identity is the whole of the finding — for Desktop, process means app-launch-to-quit. (#34, #33)
+**How the session id is obtained is deployment-specific and is settled in #33, not here** — it depends on which transports have a session identity of their own and which need Tome to mint one, which is Gate A's decision. What this section requires of it is only that it identify a client session; the interval above is what makes the predicate safe under any grain the mechanism ends up with.
 
 Row cost ~650–700 bytes, results dominating: ~4 MB / ~18 MB / ~73 MB per year at 10 / 50 / 200 searches a day. **Capacity is irrelevant at any window**, which is what makes retention purely a privacy dial (§8.5).
 
 *Source: #23 in full.*
 
-### 3.9 Type Suggestions
+### 3.9 Type Suggestions — removed, and the section kept so they are not re-proposed
 
-Written by enrichment when classification strains, in two kinds:
+**Enrichment writes no Type Suggestions.** Both kinds were specified, then measured, and neither can work. They are recorded here rather than deleted because both are the obvious thing to propose again.
 
-- **`no_fit`** — the entry is a poor/low-confidence fit for *every* existing type. Records why it strained plus a guessed name for a possible new type.
-- **`ambiguous`** — several types fit plausibly and confidence fell below threshold. Records the competing types.
+| kind | as specified | why it is gone |
+|---|---|---|
+| **`ambiguous`** | several types fit plausibly and confidence fell below threshold; records the competing types | **Measured dead, twice.** Its trigger was a confidence below 0.7 — **0 of ~2,350 entities** — or a non-empty `considered_types`, which was **`[]` on ~2,950 entities across three wordings and two models.** Both candidate mechanisms failed, so the row could never be written. *(#35)* |
+| **`no_fit`** | the entry is a poor fit for *every* existing type; records a guessed name for a possible new type | **Unreachable by construction.** It fires when nothing fits, while `Fact` is *defined* as the type for whatever fits nothing else. A designed catch-all and a missing-type detector are mutually exclusive — nothing ever reports being homeless. No measurement was needed and none would have been interpretable: a 0% rate would have been correct behaviour. *(#35)* |
 
-They are recorded as `enrichment_events` rows (§3.5 lists them among what that table captures) and are therefore **not deleted by full mode**, which deletes Entities only. `review_schema` bounds them by *time* instead (§5.7). Their classification as "derived" in §3.1 is about **migration cost** — nothing needs migrating because re-derivation refills them — not about being wiped.
+**What replaces them, in §2.2:** a recurring confusion pair in the ground-truth corpus probe is the boundary signal, and **a recurring theme inside `Fact`** is the missing-type signal — the junk drawer's *contents*, which is data that already exists and needs no model cooperation.
 
-Three consequences follow from their living in the log, and none needed a separate ruling: they **cascade on retraction** with their entry (a suggestion is a statement about an entry that no longer exists); they fall inside #19's never-prunable *current governance window* class, so **#19's "no second exception" stands**; and full mode leaves them alone, which is what makes #17's window necessary rather than a defect.
+**What this does not change.** `enrichment_events` still records the strain cases §3.5 lists — zero-Entity extractions, merges with before/after text, human `resolve_entry` decisions — and still cascades on retraction, still falls inside #19's never-prunable *current governance window* class, so **#19's "no second exception" stands** on its own terms. §5.7's *time* window survives for the same double-count reason, now applied to per-type counts.
 
-*Source: #10, #12 §7, #14 §6.*
+**CONTEXT.md's `Type Suggestion` glossary entry is affected and is deliberately not edited here** — it is domain vocabulary, so it is ratified separately alongside #36's wording.
+
+*Source: #10, #12 §7, #14 §6; removed by #35.*
 
 ### 3.10 The retraction ledger — outside Postgres, on purpose
 
@@ -566,7 +585,7 @@ A **~15-minute monotonic systemd timer**, `OnBootSec≈5min`, **no `Persistent=`
 |---|---|
 | **The seven type definitions and their `_Avoid_` lines, verbatim from CONTEXT.md** | They are already written as decision rules; they resolve most ambiguity before it becomes a runtime problem. |
 | **Exactly one type is forced** per extraction; multi-typing is off the table. | CONTEXT.md's constraint. Ambiguity is made *visible* instead (§3.9). |
-| **`Fact` is explicitly not the tie-break** | CONTEXT.md already says "a catch-all, not a default". Draining ambiguity into Fact turns it into the junk drawer that eats the schema's signal. |
+| **`Fact` is explicitly not the tie-break** | CONTEXT.md already says "a catch-all, not a default". Draining ambiguity into Fact turns it into the junk drawer that eats the schema's signal. **Measured and vindicated** — operationalising it removed 11 of 14 `Event → Fact` errors at `qwen3:14b`, the single largest confusion at both model sizes. But see below: the effect is **not** visible in Fact share. *(#36)* |
 | **Per-type natural-key specificity**, biased over-specific, coarse only for Person and Project | §3.4. |
 | **The `context` subordination rule, verbatim** | §3.3. |
 | **The name-precedence rule:** *when the summary bound forces a cut, drop narrative detail before dropping a named entity.* | Precedence, **not** preservation — "always keep every proper noun" is unbounded and would blow the bounded-summary obligation and degrade the primary vector. Needed because repeated re-summarisation drifts toward "works with Mark on several projects", and relationships were ruled out on the premise that prose carries them. Costs only prefill; **owes no full run**, since the eroding hub keys are the ones re-merged on every mention. |
@@ -575,6 +594,17 @@ A **~15-minute monotonic systemd timer**, `OnBootSec≈5min`, **no `Persistent=`
 | **Prefer the event's own date over `captured_at`** | Observed: `2026-07-26-standup-on-22nd`. |
 | **Thinking mode disabled** | Otherwise `qwen3:14b` returns a reasoning preamble instead of clean JSON. |
 | **A stated budget of 3,000 tokens, asserted at run start** | §4.4. |
+
+**Fact share is not a junk-drawer detector, and the reason is structural rather than a property of this corpus.** Measured over three independent `qwen3:14b` replicates per condition (#36):
+
+| condition | Fact share | real misclassifications |
+|---|---|---|
+| control | 12.73% / 11.29% / 11.86% | 10 / 9 / 11 |
+| fenced | 11.58% (all three) | **7 / 7 / 7** |
+
+The fenced value **sits inside the control's own range** — Fact share moved by less than run-to-run noise while the thing it is supposed to indicate moved decisively and without overlap. The reason it cannot work: **Fact share is a *net* quantity and misclassification is *gross*.** Errors cross the Fact boundary in both directions — the fence removed 11 `Event → Fact` while `Fact → Project` went 4 → 0, putting entities back — so the net barely moves however much gross error is fixed. **No corpus and no threshold repairs this.** The direct measure is the confusion table (§2.2), and §5.7 carries the warning where the count actually reaches a human.
+
+**A floor on the measured error rate, worth recording before anyone chases the last few points:** at `qwen3:14b`, 3 of the 10 control errors and 3 of the 7 *post-fence* errors come from **two subjects**, one of which the model arguably types *correctly* against a contestable corpus label. The labels were deliberately left alone — reviewing only the labels a model disagrees with is how ground truth becomes a teaching-to-the-test instrument (§4.9's own no-example-keys rule is the same hazard in the other direction). So **97.7% is a lower bound**, not a ceiling to push against. (#36)
 
 **Whole-corpus context is ruled out, and the bound is structural.** Corpus knowledge enters at exactly two points and Postgres answers both: identity resolution is an indexed lookup on `(entity_type, natural_key)`, and merge needs only **one Entity's summary**. So a single call is bounded at *prompt + one entry + one summary* — **O(1) in corpus size, forever.** Retrieval is also strictly better than stuffing: a unique-index hit is exact where spotting a match inside 100k tokens is probabilistic. The only thing that would consume a large window is batching entries per call, which is ruled out structurally by per-entry state, per-entry events, and one malformed JSON failing fifty entries with no attribution.
 
@@ -768,7 +798,13 @@ Reaches **only `resolution_required` entries**.
 
 **The Type Override is durable *input* to re-derivation, not derived output** — which is what keeps it clear of that rule. Enrichment consumes it on the next pass and the Entity remains fully derived; without persistence across a full run the override would be meaningless, since re-derivation is the only thing that reads it.
 
-**It applies as a tie-break hint only**, firing *only* where classification would otherwise fall below threshold: extractions that strain resolve to the override type; confidently-classified extractions from the same entry are untouched. A blanket relabel was rejected because it fabricates mis-typed Entities for any mixed entry — forcing Preference onto an entry that also names a person and a project manufactures two wrong Entities deliberately. Keying the override to `(raw_entry_id, natural_key)` was rejected too: the key is model-emitted and its wording changes across prompt or model changes, so the override would silently stop matching at exactly the moment you re-run — and it is unusable for the `no_fit` case, where no key was minted.
+**It applies as a tie-break hint only**, and **a blanket relabel stays rejected** because it fabricates mis-typed Entities for any mixed entry — forcing Preference onto an entry that also names a person and a project manufactures two wrong Entities deliberately. Keying the override to `(raw_entry_id, natural_key)` was rejected too: the key is model-emitted and its wording changes across prompt or model changes, so the override would silently stop matching at exactly the moment you re-run.
+
+> ⚠ **The discriminator this rule used no longer exists, and its replacement is a labelled guess.** As written, the override fired *"only where classification would otherwise fall below threshold"* — extractions that strain take the override type, confident ones are untouched. #35 deleted the threshold, and the confidence number behind it is measured to be an artifact of the prompt (§13.3), so "where the model strained" is no longer observable. Something has to take its place or the override silently becomes the blanket relabel this paragraph rejects.
+>
+> **Starting point, chosen not derived: the override applies to extractions that emit `Fact`.** `Fact` is the declared catch-all and the measured destination of mis-typing — 17 of 36 real misclassifications land there, and `Event → Fact` alone is 6 of the shipping model's 10 errors (§4.9). "This got dumped in the junk drawer and is really a Preference" is the failure the override exists to correct, and it is the one case where redirecting cannot destroy a *confident, correct* classification of a different subject. Everything not typed `Fact` is untouched, which preserves the anti-blanket-relabel guarantee.
+>
+> **This is the weakest thing in this section.** It is narrower than the original rule and it was not measured; it is written down so a builder is not left to invent the semantics silently. It deserves revisiting the first time an override fails to do what you expected.
 
 **`skip` narrowed to unparseable content only.** Its original primary justification — an entry too large to enrich — is unreachable, because an entry that large could never have been captured. What remains is content the classifier cannot produce valid JSON for: a base64 blob, minified JSON, instruction-shaped text in a note *about* prompt engineering.
 
@@ -785,23 +821,23 @@ Its description must state that it **records a decision a human has already made
 ```
 review_schema({ since?: string }) → {
   window_started_at,              // default: since the last full run began
-  confidence_threshold,
-  types:     [{ entity_type, entity_count, source_entry_count, mean_type_confidence }],
-  no_fit:    [{ guessed_type, count, example_entry_ids }],
-  ambiguous: [{ competing_types: [A, B], count, confidence_p50, example_entry_ids }],
-  confidence_histogram: [{ bucket, count }]
+  types: [{ entity_type, entity_count, source_entry_count }]
 }
 ```
 
-**Suggestions are aggregates, not a list to tick off — which dissolves retirement rather than solving it.** A recurring Preference-vs-Decision pair is evidence the type *boundary* is wrong; dismissing individual suggestions would delete exactly that evidence. Recurrence is the signal. A pair's count drops when you sharpen the definitions and re-run — nothing is ever marked as seen.
+**This tool got much smaller once its signals were measured** (§2.2, §13.3). Removed: `confidence_threshold`, `mean_type_confidence`, `confidence_histogram`, and both Type Suggestion lists (`no_fit`, `ambiguous`) with the `confidence_p50` inside the second. Every one of them either reported a number measured to be an artifact of the prompt asking for it, or aggregated a suggestion kind that could never be written. What remains is a count per type, which is real. (#35)
 
-**The window is "since the last full Enrichment Run began".** *(Originally phrased as the current Derivation Epoch; restated when the Epoch became an input set with no time in it. Behaviour is unchanged.)* The reasoning is a double-count rule: a **full** run re-derives every entry and regenerates its Type Suggestion, so summing across a full-run boundary double-counts; an **incremental** run touches only pending entries, so summing across epochs *not* separated by a full run double-counts nothing. The window is therefore a *time* question answered from the run log, and it never needed epoch identity. `since` overrides it for deliberate cross-window trend analysis.
+> ⚠ **The counts are not a misclassification detector.** A high `Fact` count is the reading this tool most invites and it does **not** indicate junk-drawer drift: Fact share is a net quantity while misclassification is gross, and it moves less than run-to-run noise while real errors move decisively (§4.9, measured). What a high `Fact` count *does* indicate is the §2.2 signal it is good for — **a type may be missing** — which is read by looking at the Fact entities themselves, not at their number.
 
-An itemised view with a review watermark was considered and rejected: it puts a write path on a read tool, adds a table, and re-introduces the resurfacing problem — every regenerated suggestion postdates the watermark, so a full run hands back the entire backlog as unreviewed.
+**Aggregates, not a list to tick off — which dissolves retirement rather than solving it.** Dismissing individual items would delete exactly the evidence the review loop reads. Recurrence is the signal, and a count drops when you sharpen the definitions and re-run — nothing is ever marked as seen. *(This reasoning was written for Type Suggestions; it survives them, because it is the reason there is no watermark on anything this tool returns.)*
 
-**The confidence threshold is one global value, visible here but not writable through MCP.** A change is meaningful only paired with a re-run, and it is configuration rather than a decision the review loop makes. The histogram exists so the line can be re-cut counterfactually before anything changes. **Per-type thresholds were rejected** on the pipeline's own reasoning: type disambiguation lives in prompt-level `_Avoid_` rules rather than numeric tuning, and seven knobs is calibration there is no data to perform for one user. Its value is in `tome.env`, and the **starting point is 0.7 — a guess, not a requirement (§13.4)**.
+**The window is "since the last full Enrichment Run began".** *(Originally phrased as the current Derivation Epoch; restated when the Epoch became an input set with no time in it. Behaviour is unchanged.)* The reasoning is a double-count rule: a **full** run re-derives every entry and regenerates its per-type rows, so summing across a full-run boundary double-counts; an **incremental** run touches only pending entries, so summing across epochs *not* separated by a full run double-counts nothing. The window is therefore a *time* question answered from the run log, and it never needed epoch identity. `since` overrides it for deliberate cross-window trend analysis.
 
-*Source: #14 §6, §8; #17.*
+An itemised view with a review watermark was considered and rejected: it puts a write path on a read tool, adds a table, and re-introduces the resurfacing problem — every regenerated item postdates the watermark, so a full run hands back the entire backlog as unreviewed.
+
+**There is no confidence threshold any more, and the reasoning that surrounded it is worth keeping.** The threshold was one global value in `tome.env`, visible here but not writable through MCP, with a histogram so the line could be re-cut counterfactually before anything changed. It is gone because it never fired: **0 of ~2,350 entities scored below 0.7**, and the number the model reports is a function of the prompt sentence asking for it — remove the clause naming 0.7 and every entity returns exactly `1.000` (#35, §13.3). What survives is the argument against numeric type-tuning generally, which that measurement strengthened rather than weakened: **per-type thresholds were already rejected** on the grounds that type disambiguation lives in prompt-level `_Avoid_` rules rather than numeric tuning, and that seven knobs is calibration there is no data to perform for one user. #36 then showed the prompt-level route working — 11 of 14 errors removed by three `_Avoid_` edits — while the numeric route measured inert. **The lever is the prompt, and that is now measured rather than asserted.**
+
+*Source: #14 §6, §8; #17; revised by #35, #36.*
 
 ### 5.8 `get_history` — audit, either id, lean by default
 
@@ -1015,6 +1051,10 @@ Cost accepted: there are no declarative models to double as this document's sche
 
 **Dependency set:** `mcp`, `psycopg[binary,pool]`, `pgvector`, `ollama`, `pydantic-settings`, with `uvicorn` and `starlette` arriving via `mcp`. Dev: `pytest`, `pytest-asyncio`, `ruff`. Pinned by `uv.lock`, deployed with `--frozen` — which also satisfies the standing advice to pin the SDK and the spec revision built against.
 
+**Two pinning mechanisms, doing different jobs — see §8.8 for the reasoning, which is not duplicated here.** `uv.lock` pins the *exact resolved versions* deployed; `pyproject.toml`'s `mcp>=1.28,<2` bounds what any *future* re-lock is allowed to resolve to. The lock alone is insufficient: regenerate it after 2026-07-28 without the bound and it resolves `mcp` 2.x, where §7.5's mechanism has no floor under it.
+
+⚠ **`uv.lock` does not exist yet.** `make deploy` runs `uv sync --frozen` (§7.6, §11.9), which **fails without a lockfile** — so generating it is a prerequisite of the first deploy, not an afterthought. The `pyproject.toml` written for #34 carries the version bound only.
+
 *Source: #20.*
 
 ### 7.2 Migrations
@@ -1103,8 +1143,8 @@ What the chosen shape buys:
 
 Two side effects, and they are **downstream of `source` rather than independent of it** — if `source` were ever dropped, both would have to be re-argued on their own terms rather than inherited (#34):
 
-- The SDK's reported memory leak was **stateless-mode only**, so this avoids it by construction rather than by trusting a fix. But the *reason* stateless is off the table is `source`; delete the column and stateless becomes the simpler choice for the HTTP entry point, at which point the leak is a live consideration again rather than a closed one.
-- The session identity that makes the fallback judgement signal possible (§3.8) exists only because sessions are stateful. **Its grain is not uniform across entry points** — see §3.8, which now states the three grains and bounds the predicate in time because of the coarsest of them.
+- The SDK's reported memory leak was **stateless-mode only**, and stateless is the SDK's *default-off* setting (`stateless_http: bool = False`), so the leak is avoided by the default rather than by `source`. What `source` supplies is a standing **reason never to flip it**. Delete the column and the default still holds, but the leak becomes an unguarded default instead of a considered choice.
+- **The session identity behind §3.8's fallback signal does *not* depend on this**, and the claim that it did is withdrawn. Tome obtains that id either way; §3.8 no longer asserts a dependency, and the grain question is #33's. So `source` is now the **sole** thing forcing statefulness — which sharpens the ⚠ obligation rather than weakening it.
 
 **No server-initiated SSE, ever.** The spec makes the server-initiated stream a MAY, and `warnings` already resolved the only thing that would have needed it. Building the stream would mean per-client connection state plus event-ID replay for resumability, with no traffic on it. **The door this closes:** the server can never *volunteer* anything without a retrofit.
 
@@ -1235,8 +1275,8 @@ Banning Natural Keys *alone* was rejected as too narrow (it leaves query text, w
 **Identifiers that replace the key: `raw_entry_id` + `entity_type` + `entity_id`.**
 
 ```
-INFO  tome.enrich: entry 331 → merged into person entity 4821 (conf 0.91)
-WARN  tome.enrich: entry 412 type_ambiguous: decision|preference (0.52) → suggestion logged
+INFO  tome.enrich: entry 331 → merged into person entity 4821
+WARN  tome.mcp:    entry 412 captured with no client identity: source NULL
 ERROR tome.mcp:    search_raw failed after 1204ms: OperationalError: connection reset
 ```
 
@@ -1261,7 +1301,7 @@ tome-enrich[12871]: phase 1: embedded 2 entries (bge-m3, 0.8s)
 tome-enrich[12871]: phase 2: loading qwen3:14b
 tome-enrich[12871]: entry 4711 → 3 entities (person, commitment, event)
 tome-enrich[12871]: entry 4712 → 1 entity (decision), merged into existing
-tome-enrich[12871]: entry 4713 → type suggestion (ambiguous: preference|decision, conf 0.41)
+tome-enrich[12871]: entry 4713 → 2 entities (fact, project)
 tome-enrich[12871]: entry 4714 transient failure (ollama timeout), attempt 1/3
 tome-enrich[12871]: entry 4715 RESOLUTION REQUIRED (unparseable_output_exhausted)
 tome-enrich[12871]: unloaded qwen3:14b
@@ -1487,7 +1527,7 @@ This does not change any decision above — it *calibrates* several. It is why r
 
 ### 8.8 Version pinning — structural for Ollama, explicit for `mcp`
 
-**The Python side needed a real pin, and it is `mcp>=1.28,<2`** in `pyproject.toml`, with the reasoning recorded inline in the file. This is not dependency hygiene: it is the premise of §7.5's statefulness obligation and therefore of `source` existing at all. On `mcp` 2.x, `mcp.server.fastmcp` does not exist, and `client_params is None` is a *served* outcome no server-side setting can prevent — so the ⚠ "never stateless" obligation would go on being followed while silently ceasing to be sufficient.
+**The Python side needed a real pin, and it is `mcp>=1.28,<2`** in `pyproject.toml`. *(The file repeats this reasoning inline as a comment, so that someone running `uv add` sees it without reading the spec. This section is the authority; the comment is a courtesy.)* This is not dependency hygiene: it is the premise of §7.5's statefulness obligation and therefore of `source` existing at all. On `mcp` 2.x, `mcp.server.fastmcp` does not exist, and `client_params is None` is a *served* outcome no server-side setting can prevent — so the ⚠ "never stateless" obligation would go on being followed while silently ceasing to be sufficient.
 
 **The bound carries a clock in the other direction**, and it is the reason to revisit rather than to forget: `mcp` 1.x caps at protocol revision 2025-11-25, so a 1.x Tome will refuse a client that opens with a 2026-07-28 envelope. Lifting the pin means re-deciding §7.5 and §9.4's `NULL` handling *first*, not afterwards. (#34)
 
@@ -1603,13 +1643,19 @@ Three consequences, all recorded because each is a place someone would otherwise
 - **`version` is unusable and is not stored.** Desktop reports `0.1.0` while the app is 1.24012.9. **Nothing may ever be gated on a client's reported version.**
 - **The field is one bit with two values on this deployment**, and `claude-ai` does not distinguish Desktop from any other first-party surface — it distinguishes it from `claude-code`, which is the whole of the information. The column name oversells it; read it as *which client wrote this*, not as provenance in any richer sense.
 
-**Stored verbatim, never normalised.** `claude-ai` is not rewritten to `claude-desktop`. A normalising map is a guess about a vendor's naming baked permanently into rows that cannot be corrected, and the mapping is not even stable — `claude-ai` may later cover surfaces that are not Desktop. Legibility is a read-side concern; the stored value is what the client said.
+**Trimmed, then stored verbatim — never *renamed*.** `claude-ai` is not rewritten to `claude-desktop`. A normalising map is a guess about a vendor's naming baked permanently into rows that cannot be corrected, and the mapping is not even stable — `claude-ai` may later cover surfaces that are not Desktop. Legibility is a read-side concern.
+
+*Surrounding whitespace is stripped, which is not a renaming:* `"  claude-ai  "` is served by the pinned SDK (probed) and would otherwise sit in an immutable row never grouping with `claude-ai`. Trimming resolves an encoding accident; it does not decide what the client is called.
 
 ### `source` is kept, and why — the write-once asymmetry
 
 The column earns its place on availability rather than on current demand. **Nothing reads it today**: it is returned only under `debug: true` (§5.1, §5.3) and retained through a Tombstone (§5.6). Nothing filters on it, and nothing branches on it.
 
-It stays anyway, for the reason that already decided `embedding_epoch_id` and `query_log`: **raw is immutable, so this is recorded at capture or never.** Add the column in six months and every prior entry is permanently anonymous — deferring does not postpone the cost, it postpones the start of the clock. Against that, the cost of keeping it is ~15 bytes a row and one dictionary read on a path with 11× measured headroom (§4.5).
+It stays anyway, for the reason that already decided `embedding_epoch_id` and `query_log`: **raw is immutable, so this is recorded at capture or never.**
+
+**The bound on that argument, stated because without it the argument proves too much.** "Cheap and unbackfillable, so keep it" would license storing `title`, `description`, `websiteUrl` and `version` too — all equally cheap, all equally unbackfillable — which this section declines two paragraphs above. The test has **three** conjuncts, and the third is what separates them: *unbackfillable* **and** *cheap* **and** **named to a question already open in this document.** `source` is named to two (§3.3's unverifiable `context` quality, §13.1/§10.4's recall-by-regime); the other four fields are named to none. A field that fails the third test is speculative storage regardless of how cheap it is.
+
+**And the counter-case, which is real:** a column nothing reads is a column nothing validates, so junk in it is both permanent and silent — which is exactly why the validation rule below exists rather than being left to a future consumer that may never arrive. Add the column in six months and every prior entry is permanently anonymous — deferring does not postpone the cost, it postpones the start of the clock. Against that, the cost of keeping it is ~15 bytes a row and one dictionary read, which needs no measurement to price.
 
 What it buys, stated as expectation rather than fact: the two values separate **human-in-chat capture from Desktop** from **agent-driven capture inside Claude Code**, which are different capture regimes. That is the only available slice on two questions the system cannot otherwise answer — whether `context` quality differs by client (§3.3 says nothing can verify it and the tool description is the only lever, so knowing *which* client's agent misjudges the trigger is the one handle available) and whether extraction recall differs by regime (§13.1, §10.4). Neither is measured. **This is the argument for keeping a cheap unbackfillable field, not a claim that the field is already useful.**
 
@@ -1623,11 +1669,35 @@ What it buys, stated as expectation rather than fact: the two values separate **
 | A sentinel (`unknown`, `anonymous`) | **Rejected.** It is a lie that survives forever in a row that cannot be corrected, and off the pin it cannot even be an accurate lie: on `mcp` 2.x a **malformed** `clientInfo` is silently degraded to the same `None` as an absent one (#34), so a sentinel would merge "the client declined to identify itself", "the client sent garbage", and "Tome was misconfigured" into one value with no way back. |
 | Refuse the capture | **Rejected.** §7.3 makes the capture path degrade rather than fail on purpose, §5.1's rejections are reserved for content that *cannot be stored correctly*, and #33 Gate A found Claude Desktop **never restarts a dead stdio server**, so failures on this path are unusually expensive. Trading a memory for a label about the client is the wrong direction: the label is metadata about the writer, the memory is the asset. |
 
-**On the pinned line `None` is unreachable from any client, which is what makes it a tripwire.** Measured on `mcp` 1.28.1 over real stdio pipes (#34): `clientInfo` is a **required** field of `InitializeRequestParams`, and every ill-formed variant is rejected at the handshake with `-32602` before Tome sees a thing — absent, `null`, `{}`, wrong types, and extra-keys-only all fail. It is not degraded, it is refused. No examined client omits it anyway: python-sdk substitutes a default, the TS SDK takes it as a required constructor argument, Claude Code hard-codes it, and Desktop sends `claude-ai` (#34, #33).
+**On the pinned line no ill-formed `clientInfo` reaches a tool handler.** Measured on `mcp` 1.28.1 over real stdio pipes (#34): `clientInfo` is a **required** field of `InitializeRequestParams`, and every ill-formed variant is rejected at the handshake with `-32602` before Tome sees a thing — absent, `null`, `{}`, wrong types, and extra-keys-only all fail. It is not degraded, it is **refused**. Contrast `mcp` 2.x, where a mis-shaped payload is silently coerced to `None` and the request is served: on the pin, malformed and absent are *distinguishable*, which is why there is no sentinel needed to tell them apart.
 
-So `client_params is None` at capture time on the pinned line means **Tome is misconfigured** — stateless mode enabled, or the pin crossed — not that a client chose anonymity.
+No examined client omits it either: python-sdk substitutes a default, the TS SDK takes it as a required constructor argument, Claude Code hard-codes it, and Desktop sends `claude-ai` (#34, #33).
 
-**The one hole the pin does *not* close: an empty name.** `{"name": "", "version": "1"}` passes validation and is **served**, with `clientInfo.name == ""` (probed, same run). Pydantic constrains the field's presence and type, not its content. An empty string is neither an identity nor an honest absence, so **an empty or whitespace-only `name` is treated as absent** — `NULL`, same as `None`, same warning. This is the *absence* case, not an exception to storing real names verbatim. No client Tome will meet does this; it is written down because it is the only reachable path to a junk `source` value on the pinned line, and an immutable row is the wrong place to discover it.
+**It does not follow that `None` is unreachable, and the earlier claim that it was is withdrawn.** `1.28.1`'s `InitializedNotification` handler marks a session Initialized **unconditionally** — it never checks that an `initialize` succeeded and never sets `_client_params`. So on **stdio** a client that skips the handshake, or has it refused, and then sends `notifications/initialized` followed by `tools/call`, **is served, with `client_params is None`** (reproduced). On streamable HTTP the same sequence is blocked earlier, by session-id validation. The probe that produced the withdrawn claim closed the connection at the rejection and never tried the continuation, so its design contained its conclusion — recorded because that is the second time on this ticket a probe's stopping point has hidden the answer.
+
+So `client_params is None` at capture time means **either Tome is misconfigured** — stateless mode enabled, or the pin crossed — **or the client never completed a handshake.** No real client is known to do the latter, but the log line must not assert a cause it cannot distinguish.
+
+### `clientInfo.name` is an unconstrained string, so `source` is validated at the gate
+
+`Implementation.name` on the pinned SDK carries **no constraints at all** — no length bound, no pattern, no whitespace stripping, and `extra: "allow"` (inspected, and confirmed end-to-end). All of these are **served**:
+
+| probed input | why it matters |
+|---|---|
+| `"  claude-ai  "` | never groups with `claude-ai`; permanent |
+| `"x" × 100,000` | no length bound exists anywhere for this column, while `context` has 1,000 and `entities.summary` 1,200 |
+| `"claude-ai\nINJECTED level=ERROR"` | forges a journal line under §7.10's format |
+| `"claude-code"` from anything at all | impersonation, undetectable — see §13.2 |
+| `"NULL"` as literal text | collides with this column's own absence semantics in any text rendering |
+
+**The rule, one line with three rejection reasons.** Strip surrounding whitespace; store the result verbatim **unless** it is empty, longer than **64 characters** (a starting point in §13.4's idiom — real values are 10–11 chars, so it cannot false-reject a genuine name), or contains control characters — in which case `source` is `NULL` and one `WARNING` is logged.
+
+Each rejection is chosen against the same principle that killed the sentinel — **never store something that looks like a value and isn't**:
+
+- **`NULL`, never truncate.** A clipped 100,000-char name reads as a real client name forever.
+- **Control characters → `NULL`, not stripped.** A name containing a newline is not a name, and silently repairing it would erase the only trace of an attempt to forge a log line.
+- **Empty → `NULL`**, but with **its own warning text**. This is the one place the sentinel objection cuts against me: mapping *client sent nothing useful* onto the same `NULL` as *nothing was recorded* does merge two situations. The distinction is kept in the log rather than the column, and therefore lives only as long as §7.11's journald retention — a deliberate, stated trade, not an oversight.
+
+No client Tome will meet sends any of these. They are written down because a column nothing reads is a column nothing validates, and an immutable row is the wrong place to discover that.
 
 **Build obligation:** write `NULL`, complete the capture, and emit **one `WARNING`-level log line** naming the entry id (never its text — invariant C, §7.10). It is a health signal, not a caller-facing one, so it is **not** a `warnings` entry (§5.10): the caller cannot act on it, and if the pin were ever crossed it would fire on every capture. **And the `NULL` must never be read as "the client chose anonymity"** — the day the pin lifts, `NULL` also covers a malformed payload.
 
@@ -1765,7 +1835,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 | ⚠ | **`--rotate` with any scoped journald vacuum** | Vacuum skips *active* files, so a bare `--vacuum-time=1s` leaves everything recent behind. | 8.3 |
 | ⚠ | **No concrete example natural keys in the extraction prompt** | Reproducible in **8 of 12 responses**: example keys are re-emitted as **fabricated Entities** with confabulated summaries. A fabricated Commitment does not read as an error; it reads as a memory. | 4.9 |
 | ⚠ | **Rejections must use FastMCP's dedicated tool-error type, not a bare `ValueError`** | FastMCP masks unexpected exception detail, so *permanent / the numbers / the remedy* all collapse into "internal error" — reinstating the silent failure the rejection exists to prevent. Applies to both the size gate and `context`'s cap. | 5.1 |
-| ⚠ | **Stateful sessions (never `stateless`) on the HTTP entry point** | `_client_params` is per-`ServerSession` state set at `initialize`, so a stateless `tools/call` arrives with none — **breaking `source`** and the session id the fallback signal depends on. | 7.5 |
+| ⚠ | **Stateful sessions (never `stateless`)** | `_client_params` is per-`ServerSession` state set at `initialize`, so a stateless `tools/call` arrives with none — **breaking `source`**. *(Not narrowed to one transport: `InitializedNotification` marks a session Initialized unconditionally, so a stdio client that never completes a handshake also reaches a handler with no identity — §9.4.)* The fallback signal's session id is **not** covered by this row; it does not depend on statefulness. | 7.5, 9.4 |
 | ⚠ | **`mcp>=1.28,<2` in `pyproject.toml`** | The row above. On 2.x, `mcp.server.fastmcp` **does not exist**, and `client_params is None` becomes a *served* outcome no server-side setting can refuse — so "never stateless" silently stops being sufficient while still being followed. | 7.5, 8.8 |
 | ⚠ | **`configure_logging()` pinning non-`tome` loggers to `WARNING`** | A FastMCP version that logs tool arguments at `DEBUG` puts `capture_entry`'s full text in the journal **with no Tome code involved**. | 7.10 |
 | ⚠ | **`logging_collector=off` and `log_parameter_max_length_on_error=0` on Postgres** | The first makes PG write files under the data dir — a third log store outside every bound and outside the dumps. The second means a failed insert into `raw_entries` **logs the entry text itself**. | 7.11 |
@@ -1777,6 +1847,8 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `UNIQUE (entity_type, natural_key)` on `entities` — the `ON CONFLICT` merge target. *(#12)*
 - [ ] `entities.embedding vector(1024) NOT NULL`, `SET STORAGE PLAIN`. *(#16)*
 - [ ] `raw_entries.embedding vector(1024)` **nullable**, `SET STORAGE PLAIN`. *(#12, #16)*
+- [ ] `raw_entries.source` **nullable** — `NULL` is the absence value; there is no sentinel. Validation rule in §11.5. *(#34)*
+- [ ] **`type_confidence` and `considered_types`: pending one measurement.** Nothing reads either any more (§3.9, §5.7), and both are re-derivable, so the decision is to drop them — held only until an ablation confirms that removing them from the prompt's output schema does not move type accuracy. Do not build on them meanwhile. *(#35)*
 - [ ] Fixed dimension, not an unconstrained `vector` — mixed dimensions fail at runtime instead of at migration time. *(#16)*
 - [ ] GIN trigram index on `entities.natural_key`. *(#16)*
 - [ ] `pgvector` and `pg_trgm` RPMs installed; pgvector present **before** any restore. *(#16, #19)*
@@ -1824,8 +1896,10 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] **Legible 403** naming the received `Host` and the allowed set — the SDK returns 421. *(#13, #20)*
 - [ ] `json_response=True`. **No server-initiated SSE, ever.** *(#13, #20)*
 - [ ] ⚠ **Stateful sessions**, and ⚠ **`mcp>=1.28,<2`** — the second is what makes the first sufficient. *(#20, #34)*
-- [ ] `source` read from `clientInfo.name` at `initialize` — **client type only**, stored **verbatim** (`claude-ai`, not `claude-desktop`), never agent-supplied, never device, never read to change behaviour. *(#10, #13, #34)*
-- [ ] `raw_entries.source` **nullable**; write `NULL` when client info is absent **or its `name` is empty/whitespace** (the one junk value 1.x validation lets through), never a sentinel, and **never refuse the capture**. Log one `WARNING` when it happens — on the pinned line it should be unreachable. *(#34)*
+- [ ] **Generate `uv.lock`** before the first `make deploy` — `uv sync --frozen` fails without it (§7.1, §8.8). *(#34)*
+- [ ] `source` read from `clientInfo.name` at `initialize` — **client type only**, whitespace-trimmed then verbatim (`claude-ai`, not `claude-desktop`), never agent-supplied, never device, never read to change behaviour. *(#10, #13, #34)*
+- [ ] **Validate it at the gate** (§9.4): `NULL` + one `WARNING` when the name is absent, empty, **>64 characters**, or contains control characters. Never truncate, never strip control characters, never refuse the capture. `clientInfo.name` is an unconstrained string — probed. *(#34)*
+- [ ] The `WARNING` must **not** claim Tome is misconfigured: a client that never completes a handshake reaches a handler with `client_params is None` too (§9.4). *(#34)*
 - [ ] The fallback-judgement pairing (§3.8) applies its interval **at read time**; the session id is stored raw. Never bake the bound into a row. *(#34)*
 - [ ] Flag a `captured_at` that disagrees wildly with the server clock. *(#15)*
 
@@ -1857,7 +1931,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `resolve_entry` description: records a decision a human has already made; **must not be called autonomously**. *(#14)*
 - [ ] `context` cap **1,000 chars in code**, coupled to the **500-token** allowance — raise one, raise the other. *(#25)*
 - [ ] `capture_entry` size rejection: **permanent / the numbers / split-and-retry**, written for the model as primary reader. Plus the ~40,000-char absurdity backstop. *(#18)*
-- [ ] Confidence threshold **visible via `review_schema`, not writable through MCP**. Starting value **0.7**; type-stickiness override margin **+0.20 and ≥ threshold** (§13.4). *(#14)*
+- [ ] **No confidence threshold and no type-stickiness margin** — both measured inert and deleted (§13.4). Type stickiness is **absolute**; the only re-typing path is `resolve_entry({ set_type })`. *(#14, #35)*
 - [ ] `get_enrichment_status` gains **entity counts grouped by epoch**. *(#17)*
 - [ ] `review_schema`'s window = **since the last full run began**, read from the run log. *(#17)*
 
@@ -1952,8 +2026,11 @@ The map records corrections in place, so **a naive read of an early ticket gives
 | **#15: the extraction prompt lives in `/etc/tome/`** | **The prompt is code**, shipped in the package, in git, inside `make deploy` and inside review. | #17 |
 | **#15: process startup cost is a concern for a 15-min `oneshot`** | **Retired on measurement** — 0.17 s warm / 0.45 s cold. | #20 |
 | **#9: the transport's `Origin` MUST** | Cannot be read strictly — **neither client sends `Origin` at all.** Implemented as a `Host` allowlist, absent `Origin` allowed, present-but-unallowlisted rejected. | #13 |
-| **#9: a reported memory leak in the Python SDK's Streamable HTTP** | **Stateless-mode only**, and stateless is *declined* here — avoided by construction on the pinned 1.x line. Two corrections: "impossible" was too strong (it is a setting Tome refuses, not an unavailable one), and the avoidance is **downstream of `source`** rather than independent — drop the column and the leak is a live consideration again. | #20, #34 |
+| **#9: a reported memory leak in the Python SDK's Streamable HTTP** | **Stateless-mode only.** Two corrections: "stateless is impossible here" was too strong — it is a setting Tome *declines*, not one it lacks; and the leak is avoided by the SDK's **default** (`stateless_http=False`), not by `source`. `source` supplies a standing reason never to flip that default. | #20, #34 |
 | **#13/#10: `source` example value `claude-desktop`** | **No client sends it.** Desktop announces `{"name": "claude-ai", "version": "0.1.0"}` — a placeholder version against app 1.24012.9. Stored verbatim; nothing may be gated on a reported version. | #33, #34 |
+| **#34: "on the pinned line `None` is unreachable from any client"** | **Withdrawn.** True only of *ill-formed `clientInfo`*, which 1.x refuses at the handshake. `InitializedNotification` marks a session Initialized unconditionally, so a stdio client that never completes a handshake is served with `client_params is None` (reproduced). The probe that produced the claim stopped at the rejection and never tried the continuation. | #34 |
+| **#34: "a process-lifetime UUID gives exactly the session grains"** | **Withdrawn, and it should never have been written** — `NEXT-STEPS.md` had already retracted it before the edit landed. One server process serves every client session on the HTTP path, so a process UUID collapses to a single value there. The mechanism is transport-dependent and belongs to **#33**, not here; §3.8 now states only the time bound, which holds under any grain. | #33, #34 |
+| **#12 §7 / #14 §6: enrichment writes `no_fit` and `ambiguous` Type Suggestions** | **Both removed (§3.9).** `ambiguous` had no reachable trigger — 0 of ~2,350 entities below the threshold, `considered_types` empty on ~2,950 across three wordings. `no_fit` is unreachable *by construction*: `Fact` is defined as the catch-all, so nothing is ever homeless. Replaced in §2.2 by the corpus probe and by reading the `Fact` pile. | #35 |
 | **#20: sessions are stateful "forced, not chosen", full stop** | **True only on `mcp>=1.28,<2`.** On 2.x's modern era a `clientInfo`-less request is *served* with `client_params is None` and no server-side setting refuses it; the client's first frame picks the era. The pin is the premise, not a detail. Also corrected: the earlier reading that the 2.x failure was "structurally unreachable on stdio" is **false** — reproduced over real pipes. | #34 |
 | **#16: the tripwire fires on "measured `search_entities` p95"** | **Now fireable** — `percentile_cont(0.95)` over `query_log.duration_ms`. **The threshold number is still open.** | #23 |
 | **#11's lean-response convention** | **Three named departures** — `warnings`, `score`, and `context` on status items (§5). The always-on `query_log` is *not* a fourth: `debug` governs what the caller sees. | #12, #16, #23, #25 |
@@ -1988,8 +2065,11 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **The server can never volunteer anything without a retrofit** | No server-initiated SSE. The door is closed knowingly. | 7.5 |
 | **"Search degraded, capture fine" is reachable without noticing** | The deliberate consequence of `tome-mcp` being soft on Ollama — which is what protects capture. `warnings` is what announces it. | 7.3 |
 | **The `warnings` channel is dead if the MCP server fails to start** | Surfaces only as a Claude connection error: obvious that something is wrong, not *what*. Desktop notifications are the deferred fix. | 10.3 |
-| **Entries captured without device provenance can never gain it** | Raw is immutable; `source` is client type only. **Near-vacuous under the on-device deployment** — there is one device by construction — but it becomes live again the moment a second device captures, and by then the old rows are already silent. | 9.4 |
+| **Entries captured without device provenance can never gain it** | Raw is immutable; `source` is client type only. §9.1 has the server shared by every device, so this is live as the document stands. *(#32 moves the deployment on-device, where it would be near-vacuous — one device by construction. That rewrite is #33's, and this row is deliberately **not** pre-adjusted for it.)* | 9.4 |
 | **`source` is one bit with two values, and no client's reported version is usable** | Desktop announces `0.1.0` while the app is 1.24012.9, and `claude-ai` distinguishes Desktop from `claude-code` and from nothing else. Kept on the write-once asymmetry — unbackfillable, ~15 bytes — **not** because anything reads it yet. Nothing may ever be gated on a client's reported version. | 9.4 |
+| **`source` is self-reported and unverifiable** | `clientInfo.name` is an arbitrary client-supplied string the protocol does not check — any client can claim `claude-code` and nothing detects it (probed). So `source` is a *label*, never evidence: it may be read as "what the writer said it was", never as "what wrote this". This is why nothing branches on it. | 9.4 |
+| **An Entity's type — and therefore its identity — is unstable across full runs for ~3% of Entities** | Type stickiness is absolute, so the type is fixed by one classification of the earliest source entry, and full mode re-decides it. `entity_type` is half the unique key, so those Entities return under a different key. Accepted because the alternative is calibrating a re-typing rule against a synthetic corpus (§3.4), and because `resolve_entry`'s Type Override pins anything that matters. | 3.4, 3.8 |
+| **Nothing in the specified telemetry can verify that classification is going wrong** | The confidence channel, the `ambiguous` suggestion and `considered_types` were all measured inert or unreachable, so the only detector is an out-of-band ground-truth corpus probe (§2.2) that measures the *prompt*, never the live corpus. Whether your actual captures are mistyped remains unanswerable without the judged set (§10.4). | 2.2, 13.3 |
 | **`source` arriving `NULL` is indistinguishable from a malformed `clientInfo`** | On the pinned `mcp` 1.x line neither is reachable from a client, so a `NULL` means Tome is misconfigured and is logged as a health signal. Off the pin, the two merge permanently — which is the reason there is no sentinel to merge them into. | 9.4 |
 | **§3.8's fallback signal pairs across conversations on Claude Desktop** | Desktop's session is one *app launch*, so the "same session" predicate is bounded in time (§13.4) rather than made precise. The bound is applied at read time and re-cuttable; the signal was already recorded as noisy. | 3.8 |
 | **An `ollama pull` between restarts leaves captures stamped with the old epoch** | Fixing it means an `/api/tags` call per capture, reintroducing a hard Ollama dependency on the one path made soft. Attribution, not forensics. | 3.2 |
@@ -2011,7 +2091,9 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **"Fidelity is inversely proportional to merge depth"; Person/Project are "the telephone game by design"** | Nobody has checked whether a twelve-times-merged summary is still findable |
 | **Exact-vs-HNSW recall on *this* corpus** | The "~1–5%" is a general figure, not Tome's |
 | **The one-vs-two-embedder question** (`embeddinggemma`'s measured +0.069 on entity-shaped text) | Deferred; a path to evidence now exists from 90 days after deploy |
-| **The ANN tripwire threshold, the `entities.summary` bound, the confidence threshold and the type-stickiness margin** | **Now have starting values (§13.4), none of them measured.** Exact-scan latency at 1024 dims was never measured; the other three were never specified by any ticket. Filled in so nothing blocks — every one is expected to move. |
+| **The ANN tripwire threshold and the `entities.summary` bound** | **Have starting values (§13.4), neither measured.** Exact-scan latency at 1024 dims was never measured. *(This row named four values. Two — the confidence threshold and the type-stickiness margin — have since been measured and **deleted**, not tuned: §13.4.)* |
+| **That a rising `Fact` share indicates junk-drawer drift** — §4.9's stated failure signature | **Measured FALSE as a detector, and listed here so nobody reads the old prose as a finding.** Fact share moved less than run-to-run noise while real misclassifications fell 10 → 7 without overlap. Structural: the share is *net*, the errors are *gross*. The requirement it justified is separately **vindicated** (11 of 14 errors removed); only its observability failed. *(#36)* |
+| **That a model's self-reported `type_confidence` carries information about its input** | **Measured FALSE.** The value is a function of the sentence requesting it: with 0.7 named it spreads over 0.8–0.95; with the number removed it returns exactly `1.000` on every entity in every stratum; a third wording gives 0.958. Separation between genuinely ambiguous and length-matched control subjects is −0.013 to −0.015 — replicable, outside the placebo floor, and far too small to threshold (best cut catches 21.7% against a pre-registered 50%). *(#35)* |
 | **`bge-m3` embed latency against the 5 s capture budget** | Never measured, and entity embedding added contention on the same `NUM_PARALLEL=1` instance |
 | **Ollama's per-model runner queues** — the basis for "a capture embed doesn't queue behind a `qwen3` generation" | Reasoned from architecture, not measured |
 | **Ollama's per-model pooling in GGUF conversion** | Unverified; `bge-m3` declares CLS, matching its card |
@@ -2025,19 +2107,19 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 
 ### 13.4 Starting-point values — chosen, not derived
 
-> **Read this before using any number in this section.** The five values below are **educated guesses, filled in so that nothing blocks on an unmade decision.** None is a technical requirement, none was measured, and no analysis anywhere in this document depends on any of them being right. They exist so a builder is not forced to invent a number silently and so there is a single place to tune. **Expect to change all four**, and treat a change as configuration, not as overturning a decision.
+> **Read this before using any number in this section.** The three values below are **educated guesses, filled in so that nothing blocks on an unmade decision.** None is a technical requirement, none was measured, and no analysis anywhere in this document depends on any of them being right. They exist so a builder is not forced to invent a number silently and so there is a single place to tune. **Expect to change all three**, and treat a change as configuration, not as overturning a decision.
 >
 > Each is stated at its use site with a pointer back here, so the caveat travels with the number.
+>
+> **Two of the original four are gone, and this is the section working as designed rather than failing.** The **global confidence threshold (0.7)** and the **type-stickiness override margin (+0.20)** were both measured on first contact and both found not merely mis-set but unsalvageable — 0 of ~2,350 entities below 0.7, and a required margin wider than the model's entire 0.14–0.15 confidence range. Deleted rather than re-guessed, with the reasoning kept at §5.7 and §3.4. A guess that gets measured and removed is the whole point of stating it as a guess. *(#35)*
 
 | Value | Starting point | Reasoning — such as it is | Tune when |
 |---|---|---|---|
 | **`entities.summary` length bound** (§3.3) | **1,200 characters** | ~15% of a maximum-size capture (2,048 tokens ≈ 8,000 chars), so a summary stays visibly compressive even for a single-source Entity and dramatically so for a merged hub — which is the tiering premise's whole claim. Roughly 200 words: one solid paragraph. Sits beside `context`'s 1,000-char cap in the same idiom, and fits trivially in the merge prompt alongside a full-size entry. **Characters, not tokens**, so it enforces at write time with no tokenizer call. | Hub Entities read as truncated mid-thought, or summaries are padding out to the cap with filler. |
-| **Global confidence threshold** (§5.7) | **0.7** | Below it, extraction records an `ambiguous` Type Suggestion instead of committing. LLM-emitted confidences are poorly calibrated and bunch high, so a conventional 0.5 would essentially never fire and the suggestion channel would go dead. 0.7 is high enough to catch genuine hesitation without flooding `review_schema`. | The `ambiguous` list is either empty for weeks or too long to review. `review_schema`'s histogram exists precisely to re-cut this line counterfactually first. |
-| **Type-stickiness override margin** (§3.3) | **new confidence ≥ incumbent + 0.20, and ≥ the global threshold** | §3.3 says an existing type wins unless the new classification is "substantially higher" and never says what that means. Two conditions rather than one: a *margin* stops a 0.71-vs-0.70 flicker from re-typing an Entity every run, and the *floor* stops a low-confidence pair from re-typing on a technicality. | Entities are observed flip-flopping between types across runs (margin too small), or a genuinely mis-typed Entity will not correct itself (too large). |
-| **Fallback-judgement pairing interval** (§3.8) | **`search_raw` within 300 s of a `search_entities` in the same session** | The signal wants "the caller looked at those scores and reached for the fallback", which is one or two LLM turns. Any bound at all is required only because Claude Desktop's session is one *app launch* (§3.8), so an unbounded predicate pairs across unrelated conversations; on both Claude Code grains the session is already tight enough that the interval rarely binds. 300 s is generous against a turn and short against a conversation boundary. **Applied at read time**, so it is re-cuttable against logged history without touching a row — which is why guessing it costs nothing. | The fallback list is full of pairs that read as unrelated on inspection (too long), or a fallback you remember making is absent (too short). |
+| **Fallback-judgement pairing interval** (§3.8) | **`search_raw` within 300 s of a `search_entities` in the same session** | The signal wants "the caller looked at those scores and reached for the fallback", which is one or two LLM turns. A bound is needed at all because a client's MCP session can outlive a single retrieval episode by an arbitrary margin — how far is deployment-specific (#33), which is why the bound is stated here rather than derived. 300 s is generous against a turn and short against any plausible episode boundary. **Applied at read time**, so it is re-cuttable against logged history without touching a row — which is what makes guessing it cheap. The re-cut reaches back only as far as §8.5's exact 90-day `query_log` retention, not over all history. | The fallback list is full of pairs that read as unrelated on inspection (too long), or a fallback you remember making is absent (too short). |
 | **ANN tripwire threshold** (§6.2) | **`search_entities` p95 > 150 ms, over a trailing 7 days, minimum 50 logged queries** | The companion trigger is ~30–50k rows, whichever comes first. §6.2's honest magnitudes put exact scan in the ~10–20 ms range, so 150 ms is ~10× headroom — it will not false-fire, but it fires *before* anything is perceptible inside an LLM turn, which is the point: it should be a warning, not a symptom. The **window and minimum sample** are the load-bearing part — without them a cold-cache outlier or a quiet week fires it. | It fires, or the row trigger arrives first and latency is still flat — in which case raise it rather than removing it. |
 
-**None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. The confidence threshold is the closest call — it changes what extraction *records* — but §5.7 already establishes that a change is only meaningful paired with a re-run, which is the deliberate act, and §7.8's fingerprint reads named keys rather than hashing the file precisely so a tuning edit does not register as a rule change.
+**None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. *(The closest call used to be the confidence threshold, because it changed what extraction recorded. With it deleted, all three remaining values are read-side or write-bound only, so the question no longer arises.)* §7.8's fingerprint reads named keys rather than hashing the file, precisely so a tuning edit does not register as a rule change.
 
 ---
 
@@ -2052,7 +2134,7 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 | **[#28](https://github.com/markdlabrecque/tome/issues/28)** | Is `ollama pull` a fourth egress exception, and does `ollama.service` carry the deny? | **Named as the fourth exception; the unit is left unsealed.** Measured: the registry fetch happens in the **daemon** (a bare `POST /api/pull` reaches the registry with no CLI involved), and the unit carries no address policy at all — so the *act* is human-initiated but the *capability* is standing. A seal was measured working, live, with no restart, and declined on proportion: it drops packets rather than refusing the syscall, so a sealed pull **hangs at `pulling manifest`** with no diagnostic, which is a silent failure mode spent on an unobserved threat. §1.3 now states what *kernel-enforced* does and does not cover. Separately, the **loopback bind is pinned** into the Tome drop-in — an inbound gap the PRD had never specified. | §1.3, §7.7 |
 | **[#29](https://github.com/markdlabrecque/tome/issues/29)** | Entity epoch stamps: one FK or two? | **Two** — `derivation_epoch_id` and `embedding_epoch_id`. Deduction, not a decision: the re-embed mode is *defined* as leaving Entities untouched, so one stamp would either never clear or restamp every Entity as freshly derived under rules that never touched extraction. #16's `embedding_model` is subsumed by the second, exactly as raw's was, because the epoch record carries the **digest** that a tag comparison cannot see. | §3.4, §4.1 |
 | **[#30](https://github.com/markdlabrecque/tome/issues/30)** | `id` type, and must the two tables match? | **`bigint` for both.** uuid's real purposes — generation outside the database, unguessability — do not apply. Decided by #26's invariant C making the id the *only* identifier in a log line; the ordering/size leak is accepted as negligible beside an unencrypted disk. **Obligation recorded:** the `text_prefix` guard is now load-bearing, since an off-by-one lands on a real neighbouring entry. | §3.2, §3.4, §5.9 |
-| **[#31](https://github.com/markdlabrecque/tome/issues/31)** | Where do Type Overrides and Type Suggestions live? | **Override: a column on `raw_entries`** (one per-entry value, history already in the log as a never-prunable class). **Suggestions: `enrichment_events` rows**, which #12 §7 already specified — the "derived" classification in #19/#20 is about migration cost, and the tension was manufactured. Retraction reach, pruning and wipe scope all follow automatically. | §3.2, §3.9 |
+| **[#31](https://github.com/markdlabrecque/tome/issues/31)** | Where do Type Overrides and Type Suggestions live? | **Override: a column on `raw_entries`** (one per-entry value, history already in the log as a never-prunable class). **Suggestions: `enrichment_events` rows**, which #12 §7 already specified — the "derived" classification in #19/#20 is about migration cost, and the tension was manufactured. *(Moot since #35: enrichment writes no Suggestions at all — §3.9. The Override half stands.)* Retraction reach, pruning and wipe scope all follow automatically. | §3.2, §3.9 |
 
 ### Two smaller notes, **not ticketed** — recorded so they are not rediscovered
 
