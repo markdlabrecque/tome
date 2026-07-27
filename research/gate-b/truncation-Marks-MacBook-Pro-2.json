@@ -1,0 +1,165 @@
+{
+  "host": "Marks-MacBook-Pro-2",
+  "model": "bge-m3",
+  "when": "2026-07-26T23:19:27-0700",
+  "corpus": "/Users/mark/Projects/tome/research/ladder-probe/corpus.py",
+  "checks": {
+    "huge_default_truncate_default_num_batch": {
+      "ok": true,
+      "wall_s": 1.611,
+      "dim": 1024,
+      "prompt_eval_count": 2048
+    },
+    "huge_default_truncate_num_batch_8192": {
+      "ok": true,
+      "wall_s": 4.796,
+      "dim": 1024,
+      "prompt_eval_count": 8192
+    },
+    "huge_truncate_false_num_batch_8192": {
+      "ok": false,
+      "status": 400,
+      "error": "{\"error\":\"the input length exceeds the context length\"}",
+      "wall_s": 0.092
+    },
+    "huge_truncate_false_num_batch_default": {
+      "ok": false,
+      "status": 400,
+      "error": "{\"error\":\"the input length exceeds the context length\"}",
+      "wall_s": 1.087
+    },
+    "ceiling_ladder_truncate_false": {
+      "target1839_actual1839": {
+        "default_num_batch": {
+          "ok": true,
+          "wall_s": 1.424,
+          "dim": 1024,
+          "prompt_eval_count": 1839
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 1.379,
+          "dim": 1024,
+          "prompt_eval_count": 1839
+        }
+      },
+      "target2048_actual2048": {
+        "default_num_batch": {
+          "ok": true,
+          "wall_s": 1.479,
+          "dim": 1024,
+          "prompt_eval_count": 2048
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 1.444,
+          "dim": 1024,
+          "prompt_eval_count": 2048
+        }
+      },
+      "target2100_actual2100": {
+        "default_num_batch": {
+          "ok": false,
+          "status": 400,
+          "error": "{\"error\":\"the input length exceeds the context length\"}",
+          "wall_s": 0.98
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 1.458,
+          "dim": 1024,
+          "prompt_eval_count": 2100
+        }
+      },
+      "target3000_actual3000": {
+        "default_num_batch": {
+          "ok": false,
+          "status": 400,
+          "error": "{\"error\":\"the input length exceeds the context length\"}",
+          "wall_s": 0.996
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 1.778,
+          "dim": 1024,
+          "prompt_eval_count": 3000
+        }
+      },
+      "target6689_actual6689": {
+        "default_num_batch": {
+          "ok": false,
+          "status": 400,
+          "error": "{\"error\":\"the input length exceeds the context length\"}",
+          "wall_s": 1.001
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 3.571,
+          "dim": 1024,
+          "prompt_eval_count": 6689
+        }
+      },
+      "target8192_actual8192": {
+        "default_num_batch": {
+          "ok": false,
+          "status": 400,
+          "error": "{\"error\":\"the input length exceeds the context length\"}",
+          "wall_s": 1.027
+        },
+        "num_batch_8192": {
+          "ok": true,
+          "wall_s": 4.495,
+          "dim": 1024,
+          "prompt_eval_count": 8192
+        }
+      }
+    },
+    "num_ctx_8192_alone_truncate_false": {
+      "ok": false,
+      "status": 400,
+      "error": "{\"error\":\"the input length exceeds the context length\"}",
+      "wall_s": 1.016
+    },
+    "truncation_direction": {
+      "input_tokens_uncapped_estimate": 16414,
+      "doc": {
+        "ok": true,
+        "wall_s": 3.279,
+        "dim": 1024,
+        "prompt_eval_count": 8192
+      },
+      "cos_to_head_sentinel": 0.4443,
+      "cos_to_tail_sentinel": 0.3881,
+      "surviving_end": "head (tail discarded)"
+    },
+    "fact_at_depth": {
+      "doc_tokens_full": 6624,
+      "doc_tokens_control": 2048,
+      "cos_full": 0.4024,
+      "cos_truncated_control": 0.3544,
+      "lift": 0.0481
+    },
+    "prefix_identity_under_default": {
+      "short": {
+        "ok": true,
+        "wall_s": 1.491,
+        "dim": 1024,
+        "prompt_eval_count": 2048
+      },
+      "long": {
+        "ok": true,
+        "wall_s": 0.517,
+        "dim": 1024,
+        "prompt_eval_count": 2048
+      },
+      "cos": 1.0
+    }
+  },
+  "controls": {
+    "over_length_input_was_truncated": true,
+    "sentinels_are_distinguishable": true,
+    "depth_control_was_truncated": true,
+    "long_doc_capped_at_same_count_as_short": true
+  },
+  "controls_all_passed": true
+}
