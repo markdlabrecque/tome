@@ -26,11 +26,15 @@ Since the previous handoff, the three Fedora-side obligations have been worked. 
 
 ## What's waiting for you, in the order I'd spend it
 
-### 1. The `mcp` version bound — has a clock, and it is the shortest
+### 1. The `mcp` version bound — closed on the Mac, but ⚠ **not pushed**
 
-**Stable `mcp` 2.0 and the final 2026-07-28 protocol both land 2026-07-28.** The SDK's own README tells dependants to add `<2` *before* it lands. **Tome pins nothing** — no `pyproject.toml`, no `uv.lock`, no constraint anywhere. So `uv add mcp` after that date resolves 2.x, where `mcp.server.fastmcp` **does not exist** and `client_params is None` is a served outcome no server-side setting can prevent.
+**Stable `mcp` 2.0 and the final 2026-07-28 protocol both land 2026-07-28.** The SDK's own README tells dependants to add `<2` *before* it lands, because on 2.x `mcp.server.fastmcp` **does not exist** and `client_params is None` is a served outcome no server-side setting can prevent.
 
-It only bites when `pyproject.toml` is first written, which is post-#33 — so not urgent tonight, but it is the one decision whose cost rises with delay. I did not create the file: writing the project's first dependency manifest starts the build, and the plan puts that after #33.
+The concurrent MacBook session reports having created **`pyproject.toml` with `mcp>=1.28,<2`** and closed this item (#34 comment, 2026-07-27).
+
+**⚠ As of this writing that file is on no remote branch.** Checked every branch on `origin`: `pyproject.toml` does not exist on any of them. It is presumably an unpushed local commit on the Mac. **Push it** — this is the single most time-boxed artifact in the project and it currently exists on one machine.
+
+Note the bound carries its own clock in the other direction: `mcp` 1.x caps at protocol 2025-11-25, so a 1.x Tome will refuse a client that opens with a modern envelope.
 
 ### 2. #36's wording — ratify, don't grill
 
