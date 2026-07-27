@@ -42,11 +42,22 @@ check)
 	echo "=== Background Task Management (item 4.5) ==="
 	# The one thing here that genuinely needs root. A LaunchAgent can be switched
 	# off from System Settings with no log line anywhere; this is how you see it.
-	for L in homebrew.mxcl.ollama homebrew.mxcl.postgresql@18; do
-		printf '%s: ' "$L"
-		sfltool dumpbtm 2>/dev/null | grep -A6 -F "$L" \
-			| grep -m1 -iE 'disposition|disabled|enabled' || echo "NOT PRESENT IN BTM"
-	done
+	# Prove sfltool produced output BEFORE interpreting a miss. Swallowing stderr
+	# made "not in BTM" indistinguishable from "sfltool failed" -- both printed
+	# NOT PRESENT, which is a false negative dressed as a finding.
+	BTM=$(sfltool dumpbtm 2>&1) || true
+	if [ -z "$BTM" ] || ! printf '%s' "$BTM" | grep -qiE 'uuid|item|app|developer'; then
+		echo "sfltool produced no usable output -- BTM state UNKNOWN, not empty."
+		echo "raw first lines:"; printf '%s\n' "$BTM" | head -5 | sed 's/^/  | /'
+	else
+		printf '%s' "$BTM" | grep -c . | sed 's/^/BTM records read: /'
+		for L in homebrew.mxcl.ollama homebrew.mxcl.postgresql@18; do
+			printf '%s: ' "$L"
+			printf '%s' "$BTM" | grep -A8 -F "$L" \
+				| grep -m1 -iE 'disposition|disabled|enabled' \
+				|| echo "absent from a BTM dump that did parse (untracked, not disabled)"
+		done
+	fi
 	echo
 	echo "=== launchd's own view (no root needed, shown for contrast) ==="
 	for L in homebrew.mxcl.ollama homebrew.mxcl.postgresql@18; do
@@ -69,15 +80,20 @@ arm)
 	# Correct before a destination exists, so attaching a disk cannot get it wrong.
 	for P in "$PGDATA" "$MODELS"; do
 		[ -e "$P" ] || { echo "skip (missing): $P"; continue; }
-		tmutil addexclusion -p "$P" && echo "excluded: $P"
+		# Loud on failure and verified after: a silent addexclusion that did
+		# nothing reads exactly like one that worked.
+		tmutil addexclusion -p "$P" || echo "FAILED to exclude: $P"
+		echo "  $(tmutil isexcluded "$P" 2>&1)"
 	done
 	echo
 	echo "=== Boot-vs-login probe (item 4.6) ==="
 	: > "$PROBE_LOG"; chown "$UID_REAL" "$PROBE_LOG"
 	probe_plist dev.tome.bootprobe "$DAEMON"
 	probe_plist dev.tome.loginprobe "$AGENT"
-	launchctl load -w "$DAEMON" 2>/dev/null || true
-	echo "installed. Both write to $PROBE_LOG at load."
+	# Deliberately NOT loaded here. /Library/LaunchDaemons loads at boot anyway,
+	# and loading now makes the daemon stamp a line before the reboot, which
+	# readback then renders as a negative offset from boot.
+	echo "installed, not loaded. Both write to $PROBE_LOG when launchd starts them."
 	echo
 	echo "Now REBOOT and log in as usual, then run: sudo $0 readback"
 	echo "If macOS shows a background-items notification on reboot, that is"
