@@ -55,6 +55,9 @@ Someone Mark knows or works with, and salient facts about them.
 
 **Project**:
 An ongoing effort (e.g. Tome itself) and its state or goals.
+_Avoid_: Event (a Project is an ongoing effort with a state; an Event is a single
+occurrence — "the effort to consolidate three authentication paths" is a Project, "the
+cutover happened over a weekend" is an Event)
 
 **Preference**:
 A standing, recurring default — an opinion or convention Mark applies repeatedly (e.g. "prefers Postgres over DuckDB for personal projects").
@@ -65,14 +68,16 @@ A specific one-off choice that was made, and why.
 _Avoid_: Preference (see above)
 
 **Fact**:
-A standalone piece of knowledge that doesn't fit another Entity Type. Deliberately kept small and generic — a catch-all, not a default.
+A standalone piece of knowledge that doesn't fit another Entity Type. Deliberately kept small and generic — a catch-all, not a default. When a subject fits Fact and also fits another Entity Type, choose the other type.
+_Avoid_: Event (an Event happened or will happen at a point in time; a Fact is a standing
+state with no occurrence)
 
 **Commitment**:
 An open obligation or promise, tracked until fulfilled.
 _Avoid_: Event (see below)
 
 **Event**:
-Something that happened, or is scheduled to happen, at a point in time — a record of occurrence, past or future, with no obligation-tracking.
+Something that happened, or is scheduled to happen, at a point in time — a record of occurrence, past or future, with no obligation-tracking. A completed occurrence remains an Event; it does not become a Fact once it is over.
 _Avoid_: Commitment ("meeting with Alex Friday" is an Event; "promised to send Alex the report by Friday" is a Commitment)
 
 **Schema Evidence**:

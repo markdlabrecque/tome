@@ -6,12 +6,34 @@ changes to it. Both are written in the glossary's own register and **neither is 
 
 | # | change | status |
 |---|---|---|
-| [#36](https://github.com/markdlabrecque/tome/issues/36) | `_Avoid_` fences on `Fact` and `Project`, one clause on `Event` | measured; **exact `Fact` wording pending one ablation** |
+| [#36](https://github.com/markdlabrecque/tome/issues/36) | `_Avoid_` fences on `Fact` and `Project`, one clause on `Event` | ✅ **APPLIED** — ablation run, rewritten `Fact` wording ratified 2026-07-27 |
 | [#35](https://github.com/markdlabrecque/tome/issues/35) | the `Type Suggestion` entry, whose referent no longer exists | ✅ **APPLIED** — Option A ratified 2026-07-27 |
 
 ---
 
-## 1. #36 — the `_Avoid_` fence
+## 1. #36 — the `_Avoid_` fence ✅ APPLIED
+
+> **Applied 2026-07-27 with the rewritten `Fact` wording, after the ablation below was run.**
+> Kept as the record of what was decided. Three amendments the ablation forced:
+>
+> 1. **The numbers in the paragraph below are pre-upgrade and not directly comparable to
+>    anything measured after 2026-07-27.** Re-measured same-runtime on Ollama 0.32.4:
+>    `Event → Fact` **7 → 3** per replicate (control → fenced), same direction as the
+>    4.7 → 1.0 below, both endpoints shifted up. The fence stands.
+> 2. **"Ranges non-overlapping throughout" cannot be claimed on the new runtime.** All four
+>    conditions are bit-identical across three replicates, so there are no ranges. And
+>    deduplicated by subject — each is drawn ~4× per replicate — the fence fixes **two subjects
+>    of eighty** and reduces distinct-subject errors 8 → 5.
+> 3. **The `Commitment → Decision` worry below largely dissolves.** It counted re-draws:
+>    deduplicated, the fenced condition mistypes *fewer* distinct `Commitment` subjects than the
+>    control (2 vs 3) while routing more of a smaller error set to `Decision`.
+>
+> **The prediction that justified the rewrite half-held, and the half that held is the one that
+> mattered.** Coverage recovered *exactly* to the control's 99.1% (from 98.8%), so the gate clause
+> **was** the mechanism behind the fence's recall cost — which is what the rewrite was for.
+> `Commitment → Decision` did **not** fall back, so the clause was **not** its mechanism and that
+> increase has no identified cause. Type accuracy was no worse (96.8% → 97.1%). Full result:
+> [`ladder-probe/ABLATION-FINDINGS.md`](./ladder-probe/ABLATION-FINDINGS.md).
 
 Measured at `qwen3:14b` over three independent replicates per condition: `Event → Fact`
 **4.7 [3–6] → 1.0**, real misclassifications **10.0 → 7.0**, type accuracy **96.8% → 97.7%**,
