@@ -1,5 +1,36 @@
 # #33 Gate B and the two carried hazards — measured on the MacBook
 
+> **CORRECTION, 2026-07-27 — read before §0.** Two claims in this document are withdrawn,
+> and the Fedora comparator has been re-measured.
+>
+> 1. **The env-var caveat below is false.** This document states the Fedora box did not set
+>    `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` (§0 and *Carried forward* item 1).
+>    **Fedora has had both since 2026-07-22**, in
+>    `/etc/systemd/system/ollama.service.d/90-pi-local-rocm.conf`, predating all benchmarking
+>    on either machine. The configurations match on this axis and **the cross-machine ratios
+>    need no such qualification.** Withdrawn on the ticket too (#33, 2026-07-27).
+> 2. **`server_env` could not have shown this, which is how the error survived.** This
+>    document cites `server_env` as the record — but `embed_latency.py:server_env()` had no
+>    Linux branch. It returned `{"vars": {}}` on Fedora, which reads as *"nothing set"* and is
+>    indistinguishable from *"not checked"*. Fixed in `b869633`; absence now reports
+>    `"unavailable"`, and both machines' artifacts carry the two flags.
+> 3. **The Fedora comparator is now measured with this document's own instrument.** It
+>    previously existed only as prose in `NEXT-STEPS.md` — no n, no protocol, no raw data.
+>    `research/gate-b/embed-latency-odin.json`, n=25: **warm ceiling median 189.9 ms**
+>    (IQR 189–191), **cold 1,281 ms**, **query 87.5 ms**. The original 184 ms holds up.
+>
+> **Net effect on the numbers: none of the Mac measurements change.** The ratios become
+> **2.36× warm / 1.07× cold / 1.13× query**, like-for-like on one instrument. Gate B still
+> passes with 11.2× headroom.
+>
+> **What this makes worse, not better:** the env-var difference was the candidate explanation
+> for the warm ratio overshooting #32's projected 1.83–2.22× band. It does not exist, and the
+> overshoot survives re-measurement, so **it is an open question.** Two residual differences
+> are recorded but not tested as causes: Ollama **0.32.4** (Mac) vs **0.32.1** (Fedora), and
+> Metal-vs-ROCm backends, which this project has never separated from hardware.
+> `OLLAMA_KEEP_ALIVE` also differs (unset on the Mac, `24h` on Fedora) but every measurement
+> passes `keep_alive` explicitly.
+
 **Machine:** MacBook Pro, Apple M4 Pro, **16 GPU cores** (confirmed via `system_profiler SPDisplaysDataType`), 48 GB unified memory, macOS 27.0 (`macOS-27.0-arm64-arm-64bit`).
 **Runtime:** Ollama **0.32.4**, Homebrew CLI formula, running as the LaunchAgent `homebrew.mxcl.ollama` on `127.0.0.1:11434`.
 **Models:** `bge-m3:latest` (1.2 GB), `qwen3:14b` (9.3 GB).
@@ -22,7 +53,7 @@ All three import `research/ladder-probe/corpus.py` (80 committed synthetic subje
 
 ### A configuration difference that is not hardware
 
-**Homebrew's Ollama LaunchAgent sets `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`; the Fedora box did not.** This is recorded in every artefact (`server_env`). Both options act on the attention/KV-cache path of a *causal decoder*; `bge-m3` is a non-causal encoder invoked through `/api/embed`, which allocates no KV cache, so they should not touch the Gate B numbers — but that is an inference from what the options do, **not** something measured here. Do not read the Mac÷Fedora ratios below as pure hardware difference without noting this. `OLLAMA_KEEP_ALIVE` is **not** set on this machine (Ollama's 5-minute default applies); every measurement nevertheless passes `keep_alive` explicitly.
+**⚠ WITHDRAWN — see the correction block at the top of this file. Fedora has both, set 2026-07-22.** The original claim read: *"Homebrew's Ollama LaunchAgent sets `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`; the Fedora box did not."* This is recorded in every artefact (`server_env`). Both options act on the attention/KV-cache path of a *causal decoder*; `bge-m3` is a non-causal encoder invoked through `/api/embed`, which allocates no KV cache, so they should not touch the Gate B numbers — but that is an inference from what the options do, **not** something measured here. Do not read the Mac÷Fedora ratios below as pure hardware difference without noting this. `OLLAMA_KEEP_ALIVE` is **not** set on this machine (Ollama's 5-minute default applies); every measurement nevertheless passes `keep_alive` explicitly.
 
 ---
 
@@ -213,7 +244,7 @@ This is a *known* consequence of the enrichment budget already documented in `re
 
 ## Carried forward
 
-1. **Record the LaunchAgent's `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` as part of the deployment's pinned configuration.** They arrived from Homebrew, not from a decision, and the Fedora comparator did not have them.
+1. **Record the LaunchAgent's `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` as part of the deployment's pinned configuration.** They arrived from Homebrew rather than from a decision, which is reason enough. ~~and the Fedora comparator did not have them~~ — **withdrawn, Fedora has both** (see the correction block); they are not a confound.
 2. **The enrichment runner must reject `done_reason == "length"`** rather than persisting entities parsed from a truncated response. Measured here at 60-80 subjects per entry; not capture-path.
 3. **Re-run `research/gate-b/truncation_probe.py` after any Ollama upgrade** — this now discharges the PRD's standing instruction with a committed, self-checking instrument rather than a manual procedure.
 4. **Gate B was measured idle and mains-powered.** Thermal derate, battery-saver, and `NUM_PARALLEL=1` contention with the enrichment model are unmeasured. The headroom is large enough that this is a note, not a risk.
