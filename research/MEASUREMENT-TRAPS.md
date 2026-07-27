@@ -57,3 +57,10 @@ blunter thing to read first.
   `considered_types` was *"empty on ~2,950 entities"* while the table directly beneath it reported 15
   fires, and it had only ever examined `corpus_ambiguous` — on `corpus.py` the field fires on
   **13.9%**. State which corpus, which prompt, which runtime, every time.
+- **A search that cannot reach the field it needs returns a miss, not a result.** `33-attended.sh`
+  grepped 8 lines *after* `Identifier:`, but in an `sfltool dumpbtm` record `Disposition:`
+  *precedes* it, so searching forward from the label could never reach it — both LaunchAgents were
+  present all along and were reported missing. Same shape as `server_env()` globbing macOS plists
+  on Linux and returning an empty environment on a box that had both flags set
+  (`33-gate-b-macbook.md`; fixed in b869633). **Verify the probe can see a known positive before
+  treating its silence as evidence.**
