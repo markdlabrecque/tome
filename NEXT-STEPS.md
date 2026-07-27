@@ -1,81 +1,101 @@
-# Next steps — handoff, 2026-07-26
+# Next steps — handoff, updated 2026-07-27 (overnight session)
 
 Written to survive a context clear. Read this first; it should make re-deriving anything unnecessary.
 
 ## Where things stand
 
-The v1 PRD is **complete and closed** ([`PRD.md`](./PRD.md), 14 sections; wayfinding map #1 and assembly #27 both closed). On top of that, a spike asked whether Tome should run on-device on the MacBook instead of the Fedora box.
+The v1 PRD is **complete and closed** ([`PRD.md`](./PRD.md), 14 sections; wayfinding map #1 and assembly #27 both closed). On top of it, spike #32 decided to **move Tome to the on-device MacBook** (M4 Pro, 48 GB) — settled, not open, reasoning in #32's closing comment. Keep `qwen3:14b`; storage ~11.7 GB against ~15 GB available.
 
-**Decision: yes — move to the on-device MacBook.** Settled, not open. Reasoning in #32's closing comment. The short form:
-
-- The desktop is dual-booted with Windows and off for stretches, while the **only** client is the MacBook — so capture and search are currently unavailable on a schedule uncorrelated with when they're wanted. On-device, client and server sleep together and that failure can't occur.
-- Power: a desktop with an RX 6900 XT runs around the clock to serve one laptop.
-- **Stated requirement: high reliability on search and capture; enrichment is explicitly allowed to be slow.** This is the axis that decides everything. Both hot paths need Postgres + the MCP server + the pinned embedder — *not* the enrichment model.
-- Keep **`qwen3:14b`**. Storage ~11.7 GB against ~15 GB available.
+Since the previous handoff, the three Fedora-side obligations have been worked. **Two are measured and waiting on you; one is mid-run.** The MacBook items (#33) are being run concurrently on that machine.
 
 ## Repo state
 
-- Branch **`spike/macos-target`**, pushed, **not merged to main**. Main has the PRD; the spike research is only on the branch. *Deciding whether to merge it to main is an open item* — it's reference material, not code.
-- `research/macos-spike-*.md` — five area documents (440 KB) plus `macos-spike-synthesis.md`, which carries a **correction block at the top**; read that before the body, the original verdict in it is withdrawn.
-- `research/ladder-probe/` — committed, re-runnable instrument: `corpus.py` (80 synthetic subjects, ground-truth types), `prompt.txt`, `CRITERIA.md` (pre-registered, two amendments recorded), `run.py`, `analyze.py`, `FINDINGS.md`, raw JSONL.
+- Branch **`spike/macos-target`**, pushed, **not merged to main**. Merging remains an open item.
+- `research/macos-spike-*.md` — five area documents plus `macos-spike-synthesis.md` (read its correction block first; the original verdict there is withdrawn).
+- `research/34-adversarial-verification.md` — #34's three claims checked against primary sources.
+- `research/ladder-probe/` — the instrument, now substantially larger than the previous handoff described. See "The instrument" below.
 
 ## Open issues
 
-| # | What | Where it runs |
+| # | What | State |
 |---|---|---|
-| **#33** | MacBook on-machine confirmations before deployment | **MacBook** |
-| **#34** | `source` provenance may arrive `None` — decide before first capture | Split: verify on Fedora, decide on Mac |
-| **#35** | §13.4's 0.7 confidence threshold measures as inert | **Fedora** |
-| **#36** | The three types with no `_Avoid_` line are the three confusion sinks | **Fedora** |
+| **#33** | MacBook on-machine confirmations | **Running on the Mac, concurrently** |
+| **#34** | `source` provenance may arrive `None` | **Verified.** Decisions open; one has a deadline |
+| **#35** | §13.4's 0.7 confidence threshold measures as inert | **Instrument built, probe running.** Decision open |
+| **#36** | The unfenced entity types are the confusion sinks | **Measured, PASS.** Wording ratification open |
 
-## Recommended sequence
+## What's waiting for you, in the order I'd spend it
 
-**#35 and #36 have a deadline: do them on Fedora before the move.** They need the GPU, Ollama, all four models (~13 GB already on disk) and the probe harness. Afterwards you'd be re-pulling models onto a 15 GB budget and waiting ~1.9× longer per arm.
+### 1. The `mcp` version bound — has a clock, and it is the shortest
 
-1. **Fedora, now — verify #34's three claims** (pure reading, ~30 min). If they don't hold, #34 evaporates.
-2. **Fedora — #36 first.** It *changes the extraction prompt*, and the prompt produces the distribution #35 calibrates against. Doing #35 first means tuning a number against a prompt you're about to replace. The dependency runs one way only.
-3. **Fedora — #35 second.** Prerequisite the ticket names: the current corpus is deliberately *unambiguous* exemplars, so answering "should the threshold be numeric at all" needs a **second, deliberately ambiguous corpus** written first.
-4. **Optional while there (~25 min):** re-run the full four-arm ladder after #36's prompt fix, to see whether fencing the confusion sinks narrows the 14b/4b gap. Not needed — 14b is settled — but it's the difference between "4b's SOFT FAIL was measured against a known-defective prompt" and a clean answer.
-5. **MacBook — #33's two gates**, then #34's decision alongside them.
+**Stable `mcp` 2.0 and the final 2026-07-28 protocol both land 2026-07-28.** The SDK's own README tells dependants to add `<2` *before* it lands. **Tome pins nothing** — no `pyproject.toml`, no `uv.lock`, no constraint anywhere. So `uv add mcp` after that date resolves 2.x, where `mcp.server.fastmcp` **does not exist** and `client_params is None` is a served outcome no server-side setting can prevent.
 
-### How to work them
+It only bites when `pyproject.toml` is first written, which is post-#33 — so not urgent tonight, but it is the one decision whose cost rises with delay. I did not create the file: writing the project's first dependency manifest starts the build, and the plan puts that after #33.
 
-Each ticket has an **AFK half that produces evidence and a HITL half that spends it.** Don't grill cold; don't try to finish them without Mark.
+### 2. #36's wording — ratify, don't grill
 
-- **#36** is ~90% agent work. Draft candidate `_Avoid_` lines, run before/after, bring the winning wording *with its measured effect*. The wording is a domain call (CONTEXT.md is the glossary) — ratify, don't grill.
-- **#35** and **#34** have genuinely contested decisions behind their evidence.
-- **Package all three decisions into one grilling pass**, not three. They share context — #35 and #36 both touch the extraction prompt, all three land in the same PRD sections.
-- Mark's standing preferences: no bundled multiple-choice; decompose into knobs; measure first; one prose question with a recommendation. For candidate *rules* (like `_Avoid_` lines), show a worked example of each before asking.
+The fence is measured and passes every pre-registered threshold. The proposed `CONTEXT.md` diff is in [`research/ladder-probe/FENCE-FINDINGS.md`](./research/ladder-probe/FENCE-FINDINGS.md), written in the glossary's register and **deliberately not applied**.
+
+One judgement rides with it: **the fence costs ~0.9 pp coverage at 14b, consistently** — the fenced condition sits below the control's worst run. The pre-registered bound accepted that in advance; you may not. You now have the number rather than an opinion.
+
+Note I **declined #36's Person `_Avoid_` line** on evidence: Person is not a confusion sink, and its arrivals in the ticket were omissions misscored as misclassifications.
+
+### 3. #35 — evidence landing overnight
+
+The probe is running. Whatever it returns, one finding is already fixed and it reshapes the ticket: **`considered_types` is gated on the very threshold that never fires** (`prompt.txt`: *"if your confidence is below 0.7 … record the alternatives"*). #35 item 2 proposes `considered_types` as the *alternative* to the numeric threshold, and as specified the two are coupled by construction — the alternative could not be observed while the thing it replaces gates it. Hence the gated/unconditional prompt axis in the run.
+
+### 4. #34's remaining decisions — alongside #33
+
+What `source` records when client info is absent, whether the column earns its place on a single-device install, and the consequence for §7.5's stateful-sessions argument. Unchanged by tonight except that the **provenance risk is low**: no client examined can omit `clientInfo`. **M4** — whether Claude Desktop omits it — is the one open input, and Gate A on the Mac answers it for free.
 
 ## Measured facts — do not re-derive these
 
-**Capture path, Fedora, RX 6900 XT, `bge-m3`, `num_batch: 8192`, against §4.5's 5,000 ms budget:**
-- Ceiling-size entry (1,839 tok), warm: **184 ms**; cold incl. load: **1,261 ms**; query embed: **87 ms**. ~27× headroom. This is the number the reliability requirement rests on, and §13.3 had it as unmeasured on either machine.
+**Capture path, Fedora, `bge-m3`, `num_batch: 8192`, against §4.5's 5,000 ms budget:** ceiling-size entry (1,839 tok) warm **184 ms**; cold incl. load **1,261 ms**; query embed **87 ms**. ~27× headroom.
 
-**Ladder probe (8 paired draws of 40 subjects):**
+**Ladder probe (8 paired draws of 40):** `qwen3:14b` 1.01 ent/subj, 99.1% coverage, 41 tok/s. `qwen3:4b` 0.95, 92.5%, 95 tok/s, **7.5% of subjects produce no entity**. `qwen3:8b` worst rung, unusable in both decoding configs.
 
-| model | ent/subj | coverage | type accuracy | subjects producing *no* entity | decode |
-|---|---|---|---|---|---|
-| `qwen3:14b` | 1.01 | 99.1% | 95.6% | 0.9% | 41 tok/s |
-| `qwen3:4b` | 0.95 | 92.5% | 89.2% | **7.5%** | 95 tok/s |
-| `qwen3:8b` | worst rung — unusable in both decoding configs | | | | 64 tok/s |
+**The fence (#36), `qwen3:14b`, three independent runs per condition:** `Event → Fact` **4.7 [3–6] → 1.0**, ranges non-overlapping; type accuracy **96.8% → 97.7%**; coverage **98.4% → 97.5%**. At `qwen3:4b` (directional only — see traps): `Event → Fact` 9.3 → 2.0, accuracy 91.1% → 92.6%.
 
-- 4b's SOFT FAIL is **omission, not miscategorisation** — dropped subjects fall to the `search_raw` fallback rather than being lost.
-- **Confusion sinks: Fact 16, Person 6, Project 5 wrong arrivals — exactly the three types with no `_Avoid_` line.** The four types that have one absorb 4 between them.
-- **`type_confidence`: 0 of 626 entities below 0.7.** Means 0.915 (14b) / 0.945 (4b) / **1.000** (8b, on every entity).
+**#36's real error structure, corrected:** 36 real misclassifications, not the ticket's 31 — **Fact 17, Project 11, Preference 3, Decision 2, Event 2, Commitment 1, Person 0.** Plus 10 omissions that the original scheme miscounted as misclassifications, 8 of them landing on Person.
 
-**Cost model:** §1.5's "~18 s/entry, ~50 h full run" was measured on **`gpt-oss:20b`, not `qwen3:14b`** — #24 says so in its own ticket body. Mac÷Fedora is **1.83–2.22×**, and **flat across model size**, so the model choice never changes the platform comparison.
+**#34, verified against primary sources 2026-07-26:** v1.28.1 matches §7.5 exactly (confirmed in source *and* by running it). Spec PR #3002 merged 2026-07-16, `clientInfo` optional, still draft-only, released revision still 2025-11-25. The "on main (2.0.0b2)" attribution is **wrong** — the behaviour post-dates the published beta, which *rejects* a `clientInfo`-less request with `-32602`. And the prior research's "structurally unreachable on stdio" is **false**: `serve_dual_era_loop` builds a fresh `Connection` per request for a modern client, reproduced over real pipes.
 
-## Traps that cost time today
+## Traps that cost time — the list grew tonight
 
-- **`format: "json"` induces degeneration.** It broke `qwen3:8b` on 3 of 8 draws (newline streams; runaway to the cap with duplicated keys) while 14b and 4b were fine. Same seeds ran clean with only that flag removed. Treat it as a per-model hazard, not a safety net.
-- **`OLLAMA_KEEP_ALIVE=24h`** is set in the existing Ollama drop-in, so cycling models mid-run leaves them all resident and overflows 16 GB VRAM. Pass `keep_alive: 0` when benchmarking multiple models.
-- **Three different JSON envelope shapes** came back across one model family: `{"entities":[…]}`, a bare `[…]`, and `[{"entities":[…]}]`. `analyze.py`'s `entities_in()` handles all three. A production runner will hit this too.
-- **Agents anchor to numbers without checking which model produced them.** Two significant errors in this spike came from exactly that. When a research result reads as confident and consequential, challenge it against its own evidence before acting.
-- **`sudo` can't prompt from inside the Claude Code harness** — no TTY. Ask Mark to run those in a real terminal.
-- **#24's corpus was never committed**, which made its probe unrepeatable. `research/ladder-probe/corpus.py` is committed for exactly this reason. Keep it that way.
+- **The probe is not reproducible.** An unchanged prompt moved `Event → Fact` by 3 with nothing changed but the wall clock. `temperature: 0` and a fixed `seed` fix sampling, not kernel scheduling, and `keep_alive: 0` reloads the model every call. **Never read a single run as a measurement.**
+- **Determinism is model-dependent.** `qwen3:4b` reproduces **bit-exactly** within a session; `qwen3:14b` does not. Replicate *files* are not replicate *observations* — **hash the payloads** before treating replicate count as sample size. This silently turned three 4b runs into one.
+- **`considered_types` is gated on the 0.7 threshold** in the prompt, so it could never have been observed populated. A field's absence may be an instruction rather than a behaviour.
+- **`format: "json"` induces degeneration** — previously `qwen3:8b`, now also `4b` under a ~150-token-longer prompt (cap hit, 1 entity from 40). Per-model hazard, not a free safety net.
+- **Scoring schemes conflate omission with misclassification.** Letting one emitted entity match several subjects lets a *missing* entity score as a *wrong* one. Cost: the entire Person finding in #36.
+- **Worked examples in a prompt must not quote the corpus** — that is teaching to the test, the defect #24's prompt had. Check it mechanically.
+- **`OLLAMA_KEEP_ALIVE=24h`** is set in the drop-in; pass `keep_alive: 0` per request rather than editing the unit (which would need sudo).
+- **Three JSON envelope shapes** across one model family; `analyze.py`'s `entities_in()` handles all three.
+- **Agents anchor to numbers without checking provenance.** Three instances now: two in #32, and #36's confusion table, which did not reproduce.
+- **`sudo` can't prompt from inside the harness** — no TTY. **None of the remaining Fedora work needs it.**
+- **Concurrent GPU jobs corrupt runs** — `raw-contended.jsonl.bak` is the retained evidence. Serialize everything on this box.
+
+## The instrument (`research/ladder-probe/`)
+
+| file | what it is |
+|---|---|
+| `corpus.py` | 80 unambiguous subjects with ground-truth types |
+| `corpus_ambiguous.py` | **new** — 100 subjects, 4 strata: 40 ambiguous, 20 length-matched controls, 24 short controls, 16 quarantined on the fence boundaries |
+| `prompt.txt` / `prompt-fenced.txt` | control and fenced extraction prompts |
+| `prompt-unconditional.txt` / `prompt-fenced-unconditional.txt` | **new** — `considered_types` ungated |
+| `run.py` | the runner. `PROMPT`, `OUT`, `ARMS`, `FORMAT`, `CORPUS` env switches; defaults reproduce the original run exactly |
+| `analyze.py` | recall and composition |
+| `type_accuracy.py` | **new** — classification against ground truth. The instrument never had this |
+| `compare_fence.py` / `compare_replicates.py` | **new** — paired A/B, and repeated-measures with degenerate-draw handling |
+| `confidence.py` | **new** — #35: per-stratum confidence, split-half placebo band, `considered_types` specificity, trigger sweep |
+| `CRITERIA.md` | pre-registration, **five amendments** — read 4 and 5 before trusting any replicate count |
+| `CONFIDENCE-CRITERIA.md` | **new** — #35 pre-registered |
+| `FENCE-FINDINGS.md` | **new** — #36's result |
+| `AMBIGUOUS-CORPUS.md` / `CONFIDENCE-SCORING.md` | **new** — corpus design and scorer reading guide |
 
 ## Things deliberately not done
 
-- `PRD.md` is **untouched** by the spike. Revising it for the on-device deployment is separate work, after #33 fixes the deployment shape.
-- The remaining harvest items from #32 are recorded in the synthesis (§6) but not ticketed: the Tome-owned-logfiles change (revises #26), awake-time staleness measurement, `initdb --locale-provider=builtin`, the reproducibility-is-a-runtime-question finding, and the `chattr +C`/compression correction. Ticket them when they become relevant, not before.
+- **`PRD.md` is untouched.** Revising it for the on-device deployment follows #33.
+- **`CONTEXT.md` is untouched.** The #36 wording is a domain call and is yours to ratify.
+- **No ticket has been closed.** #34, #35 and #36 all still carry open decisions, and the plan says to spend them in one pass rather than three.
+- **No `pyproject.toml`.** See item 1 — the pin is right, but creating it starts the build.
+- The remaining #32 harvest items stay unticketed until relevant: the Tome-owned-logfiles change (revises #26), awake-time staleness measurement, `initdb --locale-provider=builtin`, the reproducibility-is-a-runtime-question finding, and the `chattr +C`/compression correction.
