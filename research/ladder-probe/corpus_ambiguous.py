@@ -88,6 +88,9 @@ class Subject(NamedTuple):
 #   - confidence separation: mean/median `type_confidence` on `ambiguous` minus the same on
 #     `control`, computed *within each draw* and then paired across the 8 seeds. This is the
 #     #35 measurement. A separation indistinguishable from zero is evidence for (a).
+#     CRITERIA.md's FOURTH amendment applies: this box is not bit-reproducible, so establish
+#     a control-vs-control noise floor from a repeated run before reading the separation,
+#     and exclude-and-count degenerate draws rather than pooling them.
 #   - competitor naming (#35 item 2): for ambiguous rows, whether `considered_types`
 #     contains `alt`. Three counts worth keeping apart — `considered_types` empty, non-empty
 #     but missing `alt`, and containing `alt`. The last is the behavioural signal #35
