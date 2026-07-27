@@ -259,3 +259,76 @@ and #36's premise is wrong rather than merely overstated.
 rather than contradictory: §4.9 treats rising Fact share as the junk-drawer signature, and
 this probe can now say whether that signature tracks classification error or is independent
 of it.
+
+---
+
+# Fourth amendment: the run is not deterministic, so the A/B becomes repeated-measures
+
+**Written after the first fenced run, before it was scored as a result.** The third
+amendment assumed what the original probe assumed: that `temperature: 0` plus a fixed
+`seed` makes a cell reproducible, so one run per condition is a measurement. **A control
+replication falsified that**, and it has to be recorded before any fenced number is quoted.
+
+## What the replication showed
+
+`raw-control-replication.jsonl` re-runs the **unchanged** `prompt.txt` at `qwen3:14b`,
+same eight seeds, same options, same box, minutes later. Against `raw.jsonl`:
+
+| metric | first run | replication | Δ |
+|---|---|---|---|
+| `Event → Fact` | 6 | 3 | **−3** |
+| real misclassifications | 10 | 9 | −1 |
+| coverage | 99.1% | 97.8% | −1.2 pp |
+| `Fact → Project` | 0 | 2 | +2 |
+
+**Nothing changed but the wall clock.** So run-to-run noise on `Event → Fact` is at least
+±3 — the same magnitude as the effect the fence is meant to produce — and the −1.6 pp
+coverage change the fenced run showed is inside the noise the control produces on its own.
+Ollama on this stack is not bit-reproducible across model loads (`keep_alive: 0` reloads
+every call, and reduction order on the GPU is not pinned); `seed` fixes sampling, not
+kernel scheduling. **A single paired run cannot support a claim about a 3–6 count
+difference**, which is exactly what the third amendment's thresholds asked it to do.
+
+## The second hazard, resurfaced
+
+`qwen3:4b`, fenced, **seed 3 degenerated**: `done_reason: length` at the 4,096-token cap,
+**1 usable entity from 40 subjects**. Seed 5 over-split into 60 entities at 3,915 tokens.
+This is the `format: "json"` degeneration the second amendment measured on `qwen3:8b` —
+now on `4b`, under a prompt ~150 tokens longer. That one draw *is* the entire −10 pp
+coverage collapse in 4b's fenced column; the other seven draws improve on baseline.
+
+**It is a decoding hazard, not a fence effect** — but it is a real cost of a longer prompt
+under constrained decoding and it must be reported as an outcome, not filtered away.
+
+## Revised design
+
+**Three independent replicates of each condition**, same eight seeds within each, all
+constrained, all on this box back to back:
+
+| condition | replicates |
+|---|---|
+| `qwen3:14b` control | `raw.jsonl`, `raw-control-replication.jsonl`, + 1 more |
+| `qwen3:14b` fenced | `raw-fenced.jsonl` + 2 more |
+| `qwen3:4b` control | `raw.jsonl` + 2 more |
+| `qwen3:4b` fenced | `raw-fenced.jsonl` + 2 more |
+
+**Revised thresholds, replacing the third amendment's:**
+
+- The effect is read as **the difference between condition means across replicates**, and it
+  counts only if **the fenced range and the control range do not overlap** on
+  `Event → Fact`. Non-overlap across three replicates is a weak test, and it is stated as
+  weak — but it is honest about the noise floor, which a single paired run was not.
+- **Recall guard is now judged on non-degenerate draws, with degeneracy reported
+  separately**: a draw with `done_reason: length` or yielding < 10 entities from 40 subjects
+  is counted as a **degenerate draw** and excluded from coverage and accuracy, and the
+  **count of degenerate draws per condition is itself a reported outcome**. Rationale: a
+  degenerate draw measures the decoder, not the prompt's discrimination, and pooling the
+  two produced a −10 pp "recall collapse" that dissolves on inspection. Excluding it
+  without reporting it would be the opposite error.
+- **A prompt that raises the degenerate-draw count is penalised on that axis directly**,
+  and that penalty is not offset by better classification. Under constrained decoding the
+  fenced prompt is ~150 tokens longer and this is the axis where that could cost something.
+
+**What this cannot become:** three replicates is enough to see whether an effect clears the
+noise floor. It is not enough to put a confidence interval on the effect size, and no
+interval derived from it should be quoted as though it were.
