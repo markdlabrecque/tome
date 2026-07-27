@@ -1,5 +1,40 @@
 # Next steps — handoff, updated 2026-07-27 (overnight session)
 
+> ## ⚠ READ FIRST — one thing is in flight and it blocks a ratification
+>
+> **The Fedora box was upgraded Ollama 0.32.1 → 0.32.4** (2026-07-27, to settle a #33
+> question — it settled it: the version is not the explanation for the 2.34x warm ratio).
+> **The fenced arm re-run on 0.32.4 no longer looks fenced:** `Event -> Fact` **1,1,1 -> 3**,
+> errors 7 -> 10, accuracy 97.7% -> 96.8%. Every one of those falls inside the **0.32.1
+> control's** range (`Event -> Fact` 3-6, errors 9-11, accuracy 96.5-97.1%).
+>
+> **This is not yet a conclusion** — it compares 0.32.4-fenced against 0.32.1-control, which
+> confounds runtime with condition (the fourth amendment's exact error), and it is n=1.
+>
+> **A within-runtime A/B was launched:** 2 control + 2 more fenced arms on 0.32.4. It writes
+> into **this worktree, not the main checkout**:
+> `.claude/worktrees/gate-b-doc-correction/research/ladder-probe/raw-{control,fenced}-ollama0324*.jsonl`.
+> `run.py` is resumable — re-run the same command and it skips completed `(model, seed)` pairs.
+> From `research/ladder-probe/`:
+>
+> ```
+> PROMPT=prompt.txt        OUT=raw-control-ollama0324.jsonl    ARMS=qwen3:14b FORMAT=json python3 run.py
+> PROMPT=prompt.txt        OUT=raw-control-ollama0324-r2.jsonl  ARMS=qwen3:14b FORMAT=json python3 run.py
+> PROMPT=prompt-fenced.txt OUT=raw-fenced-ollama0324-r2.jsonl   ARMS=qwen3:14b FORMAT=json python3 run.py
+> PROMPT=prompt-fenced.txt OUT=raw-fenced-ollama0324-r3.jsonl   ARMS=qwen3:14b FORMAT=json python3 run.py
+> ```
+>
+> **Consequence: hold #36's `CONTEXT.md` wording ratification** until this lands. Posted to #36.
+> If the 0.32.4 control also lands near 3, #36's PASS was a property of Ollama 0.32.1. Nothing
+> else in #36 is affected — the corrected error structure, the declined Person fence, and the
+> Fact-share finding all stand independently of runtime.
+>
+> **The lesson worth keeping either way:** a runtime upgrade *is* a Derivation Epoch change,
+> and this project had no mechanism that would have noticed. Same class as #17's
+> embedding-digest argument, now with a worked example.
+> `research/ladder-probe/PROVENANCE.md` stamps every pre-upgrade result as 0.32.1 with model
+> digests; `run.py` now self-stamps every record.
+
 Written to survive a context clear. Read this first; it should make re-deriving anything unnecessary.
 
 ## Where things stand
@@ -45,6 +80,8 @@ One judgement rides with it: **the fence costs ~0.9 pp coverage at 14b, consiste
 Note I **declined #36's Person `_Avoid_` line** on evidence: Person is not a confusion sink, and its arrivals in the ticket were omissions misscored as misclassifications.
 
 ### 3. #35 — measured. Both candidate mechanisms fail
+
+⚠ **The same runtime caveat applies in principle** — every #35 arm was measured on Ollama 0.32.1. Its headline results are far more robust to it than #36's, because they are *floors* rather than small differences: `considered_types` empty across ~2,950 entities and three wordings, and no threshold within 30 points of the 50% bar. A runtime shift would have to be enormous to move those. Not re-measured; noted.
 
 Full result in [`research/ladder-probe/CONFIDENCE-FINDINGS.md`](./research/ladder-probe/CONFIDENCE-FINDINGS.md). **Verdict: abandon the numeric route; `considered_types` is not adoptable as measured.**
 
