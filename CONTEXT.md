@@ -29,7 +29,7 @@ The state of a Raw Entry whose Enrichment failed for a reason retrying cannot fi
 _Avoid_: Failed (a transient failure is not Resolution Required), error
 
 **Type Override**:
-A human-supplied classification recorded against a Raw Entry to settle an ambiguity Enrichment could not. Durable **input** to Enrichment, not derived output — so it survives a full Enrichment Run and the Entity remains fully derived. Applies as a tie-break only: it decides extractions whose confidence falls below threshold and leaves confidently-classified extractions from the same entry alone. Never a blanket relabel of the entry, since one Raw Entry may yield many Entities.
+A human-supplied classification recorded against a Raw Entry to settle an ambiguity Enrichment could not. Durable **input** to Enrichment, not derived output — so it survives a full Enrichment Run and the Entity remains fully derived. Applies as a tie-break only: it decides extractions that emit Fact — the catch-all, and the measured destination of mis-typing — and leaves every other extraction from the same entry alone. Never a blanket relabel of the entry, since one Raw Entry may yield many Entities. *(This read "extractions whose confidence falls below threshold" until #35 deleted the threshold; the replacement is a starting point, not a measurement — PRD §5.6.)*
 _Avoid_: Manual entity edit (there is no such thing — see Entity), forced type
 
 **Tombstone**:
@@ -45,7 +45,7 @@ The append-only, content-free record of every Retraction, held outside the datab
 _Avoid_: Audit log (that is `enrichment_events`, inside the database and cascaded away by Retraction), tombstone record, backup
 
 **Derivation Epoch**:
-The complete set of inputs an Entity was derived under — extraction prompt, entity-type definitions, enrichment model, embedding model, confidence threshold, and inference runtime version, each recorded by content so that a model tag moving under its own name is visible. Not a span of time: it is deduplicated by content, so an epoch begins only when a human deliberately changes the machine (a deploy, a config edit, a model pull) and never when data is captured. Its purpose is **attribution** — naming the rules behind a derived record, and detecting that today's rules differ — never reproduction, which is unreachable once a mutable model tag has moved and is unwanted anyway, since re-deriving under better rules should yield better Entities rather than identical ones. Recorded against every Entity, every audit row, and every embedding.
+The complete set of inputs an Entity was derived under — extraction prompt, entity-type definitions, enrichment model, embedding model, and inference runtime version, each recorded by content so that a model tag moving under its own name is visible. Not a span of time: it is deduplicated by content, so an epoch begins only when a human deliberately changes the machine (a deploy, a config edit, a model pull) and never when data is captured. Its purpose is **attribution** — naming the rules behind a derived record, and detecting that today's rules differ — never reproduction, which is unreachable once a mutable model tag has moved and is unwanted anyway, since re-deriving under better rules should yield better Entities rather than identical ones. Recorded against every Entity, every audit row, and every embedding.
 _Avoid_: Generation, version, span (the governance window for schema review is a *time* window — since the last full Enrichment Run began — and is a separate thing)
 
 ### Entity Types
@@ -75,6 +75,6 @@ _Avoid_: Event (see below)
 Something that happened, or is scheduled to happen, at a point in time — a record of occurrence, past or future, with no obligation-tracking.
 _Avoid_: Commitment ("meeting with Alex Friday" is an Event; "promised to send Alex the report by Friday" is a Commitment)
 
-**Type Suggestion**:
-A note logged by Enrichment when classification strains, in one of two kinds. **No fit**: the Raw Entry is a poor/low-confidence fit for every existing Entity Type — records why it strained, plus a guessed name for a possible new type. **Ambiguous**: several Entity Types fit plausibly and confidence fell below threshold — records the competing types. Governance metadata, not itself an Entity Type: both kinds exist only to feed the periodic manual review of the entity-type schema, where a recurring Ambiguous pair is evidence that a type *boundary* is wrong rather than that a guess was.
-_Avoid_: New entity, candidate type
+**Schema Evidence**:
+What the periodic manual review of the entity-type schema reads. Two kinds, neither of them a model self-report. **A recurring confusion pair** in the ground-truth corpus probe is evidence that a type *boundary* is wrong rather than that one guess was. **A recurring theme inside Fact** is evidence that a type is *missing* — Fact is the designed catch-all, so what accumulates there is the homeless-subject signal. Governance metadata, not itself an Entity Type.
+_Avoid_: Type Suggestion (the model-emitted version — it was specified, measured, and removed; see PRD §3.9), new entity, candidate type

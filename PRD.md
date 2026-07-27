@@ -276,7 +276,6 @@ A **Derivation Epoch is a content-addressed set of inputs, not a span of time.**
 | Entity-type definitions hash | same module — the definitions go into the prompt verbatim |
 | Enrichment model tag **+ digest** | `qwen3:14b` + `/api/tags` |
 | Embedding model tag **+ digest** | `bge-m3` + `/api/tags` |
-| Confidence threshold | `tome.env` |
 | Ollama version | `ollama --version` |
 
 **How it works:** at the start of a process that produces derived output, the fingerprint is assembled. If an identical row exists it is reused; otherwise one is inserted. Derived rows carry its id. Deduplicated by content, so there are **no rollover rules**, no "does a capture start an epoch" question — a capture produces no row, so the question cannot arise — and no sensitivity whatever to capture frequency. Over Tome's whole life this table holds perhaps a dozen rows.
@@ -289,7 +288,7 @@ That is no loss. Raw being the sole source of truth already makes "reproduce" me
 
 | Axis | Governs | A change makes them | Remedy | Cost |
 |---|---|---|---|---|
-| **Extraction** (prompt, type definitions, `qwen3:14b`, threshold) | Entities | **stale** — a quality problem | full run | ~50 h / 10k |
+| **Extraction** (prompt, type definitions, `qwen3:14b`) | Entities | **stale** — a quality problem | full run | ~50 h / 10k |
 | **Embedding** (`bge-m3`) | vectors on **both** layers | **incoherent** — a correctness problem, since cosine across model versions is meaningless and exact search leaves no fuzz to hide it | `--reembed` | ~6 min / 10k |
 
 A single opaque version over-triggers in **both** directions, and the dangerous direction is a model re-pull inviting a fifty-hour re-run for something that never touched extraction. Itemising gives one identity to stamp with, plus field-level diffing so a human reads which half moved and picks the remedy.
@@ -306,7 +305,7 @@ A single opaque version over-triggers in **both** directions, and the dangerous 
 | `tome-migrate` DDL | No — a real change arrives with a prompt change |
 | Service restart, backup restore | No — the table restores with the database |
 | Editing the prompt or the type definitions | **Yes** (via `make deploy`) |
-| Changing the threshold or a model tag | **Yes** (`tome.env` edit + restart) |
+| Changing a model tag | **Yes** (`tome.env` edit + restart) |
 | `ollama pull` moving a digest under a fixed tag | **Yes** |
 | `ollama pull` returning the same digest | No — content-addressed |
 | Ollama upgrade | **Yes** |
@@ -314,6 +313,8 @@ A single opaque version over-triggers in **both** directions, and the dangerous 
 The `ollama pull` row is the one a human fires **without meaning to** — one word that silently repartitions the vector column. That is why the digest is recorded at all, and why its warning is the persistent one (§5.10).
 
 *Source: #17 in full.*
+
+**One input was removed, and the shrunken key set is the point.** The **confidence threshold** was an epoch input, because changing it changed what extraction recorded. #35 deleted the threshold outright (§13.4), so it can no longer differ between epochs and no longer belongs in the fingerprint. Nothing else about the epoch changes: the fingerprint reads *named keys* (§7.8), so removing one narrows what counts as a rule change rather than invalidating anything already stamped. (#35)
 
 ### 3.8 `query_log` — retrieval telemetry
 
@@ -1217,7 +1218,6 @@ stop tome-enrich.timer
 **`/etc/tome/tome.env`, via `EnvironmentFile=`.** Contents:
 
 - the `Host` allowlist — the literal short name, the tailnet IPv4 and IPv6, `localhost`/`127.0.0.1`, and a **suffix pattern** (`*.tailc0e3c3.ts.net`) so a *device* rename cannot break every client
-- the **global confidence threshold** (starting value **0.7**, §13.4)
 - model names
 - the per-request `num_ctx` ceiling
 - the database URL
@@ -2139,7 +2139,7 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 ### Two smaller notes, **not ticketed** — recorded so they are not rediscovered
 
 - **#12's DB-level enforcement sentence** reads *"`REVOKE UPDATE/DELETE` on `entities` … and route mutations through a function that writes the event."* The invariant restated across #18/#19/#23/#26 is unambiguously about **`enrichment_events` being append-only**, so §3.5 states it that way with the routing as its mechanism. Worth a glance from whoever writes the grants.
-- **Numbers no ticket ever named** — the `entities.summary` length bound, the confidence threshold, the ANN tripwire's p95 value, and (found while filling the others in) the type-stickiness override margin, which §3.3 called "substantially higher" without ever saying how much. **All four now carry starting values in §13.4**, explicitly guesses rather than requirements, so that a builder tunes a stated number instead of inventing one silently.
+- **Numbers no ticket ever named** — the `entities.summary` length bound, the confidence threshold, the ANN tripwire's p95 value, and (found while filling the others in) the type-stickiness override margin, which §3.3 called "substantially higher" without ever saying how much. **All four were given starting values in §13.4**, explicitly guesses rather than requirements, so that a builder tunes a stated number instead of inventing one silently. *(Two of the four — the confidence threshold and the stickiness margin — were then measured and deleted rather than tuned; #35. That is the mechanism working, and it is why they were labelled guesses.)*
 
 ---
 

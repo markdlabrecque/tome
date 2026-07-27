@@ -7,7 +7,7 @@ changes to it. Both are written in the glossary's own register and **neither is 
 | # | change | status |
 |---|---|---|
 | [#36](https://github.com/markdlabrecque/tome/issues/36) | `_Avoid_` fences on `Fact` and `Project`, one clause on `Event` | measured; **exact `Fact` wording pending one ablation** |
-| [#35](https://github.com/markdlabrecque/tome/issues/35) | the `Type Suggestion` entry, whose referent no longer exists | settled; wording is the only open part |
+| [#35](https://github.com/markdlabrecque/tome/issues/35) | the `Type Suggestion` entry, whose referent no longer exists | ✅ **APPLIED** — Option A ratified 2026-07-27 |
 
 ---
 
@@ -67,7 +67,9 @@ wording with the trade accepted explicitly.
 
 ---
 
-## 2. #35 — the `Type Suggestion` entry
+## 2. #35 — the `Type Suggestion` entry ✅ APPLIED
+
+> **Ratified as Option A and applied.** Kept below as the record of what was decided and why, plus two further references the ratification turned up: `Type Override`'s discriminator (which cited the deleted threshold) and `Derivation Epoch`'s input list (which named it as a recorded input). Both were corrected in the same pass.
 
 Enrichment no longer writes Type Suggestions. Both kinds failed, for different reasons, and
 the reasoning is in PRD §3.9: `Ambiguous` had no reachable trigger (0 of ~2,350 entities below
@@ -114,6 +116,8 @@ closed tickets, so a reader meeting it in the archive gets no pointer saying it 
 
 ## Ratification
 
-Nothing here is applied. Say which option for #35, and whether #36's diff goes in as written
-once the ablation reports — and I will apply both in one commit, since they touch adjacent
-entries in the same file.
+**#35: done** — Option A, applied 2026-07-27.
+
+**#36: open, and blocked on the ablation rather than on a judgement.** The diff in §1 goes in as
+written *if* the rewritten `Fact` clause holds coverage; if it does not, the choice reverts to
+the measured phrasing with the recall cost accepted explicitly.
