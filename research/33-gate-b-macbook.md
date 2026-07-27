@@ -23,13 +23,33 @@
 > **2.36× warm / 1.07× cold / 1.13× query**, like-for-like on one instrument. Gate B still
 > passes with 11.2× headroom.
 >
-> **What this makes worse, not better:** the env-var difference was the candidate explanation
-> for the warm ratio overshooting #32's projected 1.83–2.22× band. It does not exist, and the
-> overshoot survives re-measurement, so **it is an open question.** Two residual differences
-> are recorded but not tested as causes: Ollama **0.32.4** (Mac) vs **0.32.1** (Fedora), and
-> Metal-vs-ROCm backends, which this project has never separated from hardware.
-> `OLLAMA_KEEP_ALIVE` also differs (unset on the Mac, `24h` on Fedora) but every measurement
-> passes `keep_alive` explicitly.
+> 4. **The Ollama version difference has been tested, and it is not the explanation either.**
+>    Fedora was upgraded 0.32.1 → **0.32.4**, matching the Mac, with the drop-in env preserved
+>    and all four model digests verified identical — so the runtime version was the only
+>    variable. Re-measured (`embed-latency-odin.json`; the 0.32.1 baseline is retained as
+>    `embed-latency-odin-ollama-0.32.1.json`):
+>
+>    | | 0.32.1 | 0.32.4 | Δ |
+>    |---|---|---|---|
+>    | warm ceiling | 189.9 ms | **191.2 ms** | +1.3 ms |
+>    | cold | 1,281.4 ms | **1,281.7 ms** | +0.2 ms |
+>    | query | 87.5 ms | **87.9 ms** | +0.4 ms |
+>
+>    **No material change** — 0.7% on the warm path, if anything slightly slower.
+>
+> **Where that leaves the overshoot.** With versions matched, env matched, digests verified and
+> one instrument on both sides, the ratios are **2.34× warm / 1.07× cold / 1.13× query**. The
+> warm figure still exceeds #32's projected **1.83–2.22×** band, and every candidate confound
+> has now been eliminated by measurement rather than argument.
+>
+> **The most likely reading is therefore that #32's band was simply too narrow for the warm
+> encoder path, not that anything here is confounded.** That band was derived from
+> decode-bound reasoning; a warm encoder forward pass on a 1,839-token input is a different
+> regime, and the two ratios that *are* inside the band (cold at 1.07×, query at 1.13×) are
+> both dominated by fixed overhead rather than by compute. The remaining difference is
+> Metal-vs-ROCm, which is what "platform difference" *means* — it is not a confound to be
+> removed. **Recommendation: widen or split the band by regime rather than treat 2.34× as an
+> anomaly.**
 
 **Machine:** MacBook Pro, Apple M4 Pro, **16 GPU cores** (confirmed via `system_profiler SPDisplaysDataType`), 48 GB unified memory, macOS 27.0 (`macOS-27.0-arm64-arm-64bit`).
 **Runtime:** Ollama **0.32.4**, Homebrew CLI formula, running as the LaunchAgent `homebrew.mxcl.ollama` on `127.0.0.1:11434`.
