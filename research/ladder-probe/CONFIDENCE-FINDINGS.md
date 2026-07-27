@@ -52,9 +52,20 @@ This is the sharpest result here. Removing the clause that names 0.7:
 
 **With 0.7 mentioned, values spread over {0.8, 0.9}. With it removed, the model returns
 exactly 1.000 on every entity in every stratum** — 317 and 279 entities across two
-replicates, no exceptions. The spread was anchored by the instruction, not measured from the
-input. A self-report that changes range this drastically when you change the sentence asking
-for it is not carrying information about the input.
+replicates, no exceptions.
+
+The third wording makes the point cleanly, because now there are three prompts over one
+corpus. `qwen3:14b`, `ambiguous` stratum mean `type_confidence`:
+
+| prompt | ambiguous mean | separation vs matched |
+|---|---|---|
+| gated — names 0.7 | 0.889 / 0.896 | −0.014 |
+| unconditional — names no number | **1.000** | +0.000 |
+| forced — names no number, different tail | **0.958** | −0.008 |
+
+**Same corpus, same model, same subjects. The confidence level is a function of the sentence
+asking for it.** A self-report that moves 0.11 on rewording, while the separation it is
+supposed to express stays within ±0.014, is not carrying information about the input.
 
 ## 2. `considered_types` is never populated — and the rewrite made it worse
 
@@ -76,15 +87,28 @@ Overall fire rate across all arms: **15 of ~2,350 entities (0.6%)**, with **0 of
 `ambiguous` stratum** in the arms where it fired at all. Sensitivity 0.0%, and therefore no
 trigger.
 
-**The unconditional variant is not validated, and honesty requires saying so.** It produced
-*fewer* fires than the gated prompt — zero, in all four arms. `CONFIDENCE-CRITERIA.md`
-pre-registered the opposite failure mode ("fires on nearly everything is a FAILURE of the
-variant") and not this one. The likely culprit is my own second sentence — *"If only one type
-was ever in play, leave considered_types empty"* — which may have licensed emptiness as the
-default rather than requesting discrimination. **So the correct reading is: `considered_types`
-is unusable across the two wordings tried, not that the model is incapable of populating it.**
-A third wording that demands enumeration without offering an opt-out is a cheap follow-up and
-is the one remaining shot at #35 item 2.
+**The unconditional variant was not validated on its own**, so a third wording was run rather
+than resting the verdict on it. It had produced *fewer* fires than the gated prompt — zero, in
+all four arms — where `CONFIDENCE-CRITERIA.md` had pre-registered the opposite failure mode
+("fires on nearly everything is a FAILURE of the variant"). The suspect was my own second
+sentence, *"If only one type was ever in play, leave considered_types empty"*, which may have
+licensed emptiness as the default.
+
+**Third wording (`prompt-forced.txt`): also 0.0%.** The opt-out sentence was removed, the
+schema hint changed from *"other types you weighed, **if any**"* to *"the types you rejected
+for this subject"*, and the instruction rewritten to state that the unchosen type belongs
+there whenever the model hesitated.
+
+| `prompt-forced.txt` | paired | non-empty `considered_types` |
+|---|---|---|
+| `qwen3:14b` ambiguous | 126 | **0 (0.0%)** |
+| `qwen3:14b` all strata | 315 | **0 (0.0%)** |
+| `qwen3:4b` ambiguous | 115 | **0 (0.0%)** |
+| `qwen3:4b` all strata | 293 | **0 (0.0%)** |
+
+**Three wordings, two models, ~2,950 entities, and the field is empty on all of them.** #35
+item 2 is answered: `considered_types` is not a usable ambiguity trigger for these models on
+this task, and the failure is not an artifact of how it was asked for.
 
 ## 3. Item 4 — type stickiness is absolute, confirmed by measurement
 
