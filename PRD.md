@@ -2101,7 +2101,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **The `num_batch` behaviour is undocumented** and sits beside a `TODO` in Ollama's source | Re-probe after any upgrade |
 | **The 1,000-char `context` cap and its 500-token allowance** | Explicitly labelled estimates, not calibration |
 | **The backup space budget** | Arithmetic, not measurement — which is why the free-space guard exists rather than the table |
-| **That `source`'s two values separate meaningfully different capture regimes** (Desktop's human-in-chat vs Claude Code's agent-driven) — the sole stated benefit of keeping the column | Expectation, not finding. The column is kept on the **unbackfillability** argument; this is what it is *hoped* to buy. Settleable from the query log and a judged set (§10.4) once rows exist. |
+| **That `source`'s two values separate meaningfully different capture regimes** (Desktop's human-in-chat vs Claude Code's agent-driven) — the sole stated benefit of keeping the column | Expectation, not finding. The column is kept on the **unbackfillability** argument; this is what it is *hoped* to buy. Settleable from **the judged set alone** (§10.4) once rows exist — *not* from `query_log`, which carries no `source` column, so neither named question is answerable there. |
 | **Claude Desktop's lack of native remote-MCP support** | Verified at decision time; **re-check before building** |
 | **The `granite-embedding-english-r2` near-miss** | Not in the Ollama library at decision time; worth re-checking |
 
