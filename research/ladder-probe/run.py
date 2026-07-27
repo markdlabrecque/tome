@@ -21,6 +21,32 @@ FORMAT = os.environ.get("FORMAT") or None   # "json" for grammar-constrained dec
 SEEDS = list(range(8))
 DRAW_N = 40
 API = "http://127.0.0.1:11434/api/generate"
+TAGS = "http://127.0.0.1:11434/api/tags"
+
+
+def runtime_stamp():
+    """Ollama version and per-model digest, recorded per run.
+
+    PRD.md's Derivation Epoch requires the inference runtime version and requires models to
+    be recorded *by content*. This probe recorded neither until 2026-07-27; see
+    PROVENANCE.md, which stamps the earlier runs retrospectively.
+    """
+    import subprocess
+    try:
+        ver = subprocess.run(["ollama", "--version"], capture_output=True, text=True).stdout.strip()
+    except Exception:                                    # noqa: BLE001
+        ver = "unavailable"
+    digests = {}
+    try:
+        with urllib.request.urlopen(TAGS, timeout=30) as r:
+            for m in json.load(r).get("models", []):
+                digests[m["name"]] = m.get("digest", "")[:20]
+    except Exception:                                    # noqa: BLE001
+        digests = {"error": "unavailable"}
+    return {"ollama_version": ver, "model_digests": digests}
+
+
+STAMP = runtime_stamp()
 
 
 def draw(seed):
@@ -86,6 +112,8 @@ def main():
                     "eval_count": p.get("eval_count"),
                     "eval_duration": p.get("eval_duration"),
                     "done_reason": p.get("done_reason"),
+                    "runtime": STAMP["ollama_version"],
+                    "model_digest": STAMP["model_digests"].get(model, ""),
                 }
                 fh.write(json.dumps(rec) + "\n")
                 fh.flush()
