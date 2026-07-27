@@ -402,3 +402,66 @@ is not predictable from any one of them.** The practical rule stands and general
 
 Consequence for #35's numbers: the control-prompt arms carry two independent observations
 each and the fenced arms carry one. Reported that way.
+
+---
+
+# Seventh amendment: determinism is also a property of the *runtime version*
+
+**Written after the 0.32.4 within-runtime A/B was scored, and labelled as post-hoc.** It
+records a measured fact about the instrument, not a change to any threshold.
+
+The fifth amendment found determinism varies by model; the sixth, by prompt and corpus. The
+Ollama 0.32.1 → 0.32.4 upgrade adds the runtime itself, and it moved the property further
+than any earlier factor did.
+
+Hashing `qwen3:14b` response payloads per `(seed, replicate)`, same box, same options, same
+corpus, same two prompts:
+
+| runtime | control prompt | fenced prompt |
+|---|---|---|
+| 0.32.1 | **3 of 3 replicates distinct** | **3 of 3 replicates distinct** |
+| 0.32.4 | 2 of 2 distinct, but **identical on 7 of 8 seeds** | **1 of 3 — all three byte-identical** |
+
+On 0.32.1 this arm was the reason the design became repeated-measures at all: the fourth
+amendment exists because an unchanged control prompt moved `Event → Fact` by 3 between runs.
+**On 0.32.4 the same model on the same prompts reproduces bit-exactly.** The single
+non-reproducing draw (control, seed 0) scored identically on every reported metric, so it
+did not even register as a second observation in practice.
+
+**The consequence is uncomfortable and must not be glossed:**
+
+1. **The non-overlap test is formally satisfied and epistemically empty on 0.32.4.** Both
+   conditions have zero-width ranges, but zero width produced by *determinism* is not the
+   same evidence as zero width produced by *stability*. Each condition carries **one**
+   independent observation, exactly the `qwen3:4b` situation of the fifth amendment, now at
+   the shipping model.
+2. **Replication within a session can no longer estimate the noise floor on this box.** The
+   only measured noise floor this project has is 0.32.1's, where the control spanned 3–6 on
+   `Event → Fact`. Any 0.32.4 effect should be judged against that borrowed floor, with the
+   borrowing stated, or against a floor re-measured by a means that defeats caching —
+   server restarts between runs, which this harness lacks the privileges for.
+3. **A run's reproducibility says nothing about whether it is right.** 0.32.4 reproduces
+   bit-exactly *and* its control is worse on the target confusion than 0.32.1's
+   non-reproducible control (7 vs 4.7). Determinism is a property of the computation, not a
+   quality signal.
+
+**The rule, restated with the runtime added:**
+
+> **Determinism is a property of the whole configuration — model × prompt × corpus ×
+> runtime — and is not predictable from any part of it. Hash the payloads every time, and
+> record the runtime alongside the hash.**
+
+## A defect in the third amendment's relocation criterion, found by this run
+
+The relocation check reads: *"no new confusion exceeding the `Event → Fact` reduction."* It
+compares the **largest single** new confusion against the reduction. It does not sum them.
+
+On 0.32.4 the fence removes 4.0 `Event → Fact` per run and adds 2.0 `Commitment → Decision`
+plus 1.0 `Commitment → Fact`. Largest single increase 2.0 < 4.0, so the criterion passes —
+while the *summed* relocation of 3.0 gives back three-quarters of the reduction, and net
+real errors fall by only 1.0 per run.
+
+**The criterion should have been stated on the sum, not the maximum.** It is left as written
+because it was pre-registered and the result is reported against it as written; the summed
+figure is reported alongside it so the reader can apply the stricter test. Any future
+prompt-fence A/B in this directory should pre-register the sum.

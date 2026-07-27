@@ -15,7 +15,7 @@
 >    indistinguishable from *"not checked"*. Fixed in `b869633`; absence now reports
 >    `"unavailable"`, and both machines' artifacts carry the two flags.
 > 3. **The Fedora comparator is now measured with this document's own instrument.** It
->    previously existed only as prose in `NEXT-STEPS.md` — no n, no protocol, no raw data.
+>    previously existed only as prose in the handoff (`NEXT-STEPS.md`, since deleted) — no n, no protocol, no raw data.
 >    `research/gate-b/embed-latency-odin.json`, n=25: **warm ceiling median 189.9 ms**
 >    (IQR 189–191), **cold 1,281 ms**, **query 87.5 ms**. The original 184 ms holds up.
 >
@@ -23,19 +23,61 @@
 > **2.36× warm / 1.07× cold / 1.13× query**, like-for-like on one instrument. Gate B still
 > passes with 11.2× headroom.
 >
-> **What this makes worse, not better:** the env-var difference was the candidate explanation
-> for the warm ratio overshooting #32's projected 1.83–2.22× band. It does not exist, and the
-> overshoot survives re-measurement, so **it is an open question.** Two residual differences
-> are recorded but not tested as causes: Ollama **0.32.4** (Mac) vs **0.32.1** (Fedora), and
-> Metal-vs-ROCm backends, which this project has never separated from hardware.
-> `OLLAMA_KEEP_ALIVE` also differs (unset on the Mac, `24h` on Fedora) but every measurement
-> passes `keep_alive` explicitly.
+> 4. **The Ollama version difference has been tested, and it is not the explanation either.**
+>    Fedora was upgraded 0.32.1 → **0.32.4**, matching the Mac, with the drop-in env preserved
+>    and all four model digests verified identical — so the runtime version was the only
+>    variable. Re-measured (`embed-latency-odin.json`; the 0.32.1 baseline is retained as
+>    `embed-latency-odin-ollama-0.32.1.json`):
+>
+>    | | 0.32.1 | 0.32.4 | Δ |
+>    |---|---|---|---|
+>    | warm ceiling | 189.9 ms | **191.2 ms** | +1.3 ms |
+>    | cold | 1,281.4 ms | **1,281.7 ms** | +0.2 ms |
+>    | query | 87.5 ms | **87.9 ms** | +0.4 ms |
+>
+>    **No material change** — 0.7% on the warm path, if anything slightly slower.
+>
+> **Where that leaves the overshoot.** With versions matched, env matched, digests verified and
+> one instrument on both sides, the ratios are **2.34× warm / 1.07× cold / 1.13× query**. The
+> warm figure still exceeds #32's projected **1.83–2.22×** band, and every candidate confound
+> has now been eliminated by measurement rather than argument.
+>
+> **The most likely reading is therefore that #32's band was simply too narrow for the warm
+> encoder path, not that anything here is confounded.** That band was derived from
+> decode-bound reasoning; a warm encoder forward pass on a 1,839-token input is a different
+> regime, and the two ratios that *are* inside the band (cold at 1.07×, query at 1.13×) are
+> both dominated by fixed overhead rather than by compute. The remaining difference is
+> Metal-vs-ROCm, which is what "platform difference" *means* — it is not a confound to be
+> removed. **Recommendation: widen or split the band by regime rather than treat 2.34× as an
+> anomaly.**
+>
+> **Resolved — the split already exists, so no widening is needed.** Written independently on
+> the Mac, and it lands where the reasoning above points. `research/macos-spike-inference.md`
+> §19.3 decomposes #32's band directly: **4.30× prefill, 1.80× decode**, blended in
+> `qwen3:14b`'s proportions. `bge-m3` is 100% prefill, so **4.30× is its comparator and 2.34×
+> is an undershoot of it.** The ratio is also not a constant — it slides with input length,
+> from ~1.0–1.3× at 128 tokens to ~2.45× at 2,048 — so no single number belongs in the band at
+> all. See `research/gate-b-overshoot.md`, and the correction block below.
 
 **Machine:** MacBook Pro, Apple M4 Pro, **16 GPU cores** (confirmed via `system_profiler SPDisplaysDataType`), 48 GB unified memory, macOS 27.0 (`macOS-27.0-arm64-arm-64bit`).
 **Runtime:** Ollama **0.32.4**, Homebrew CLI formula, running as the LaunchAgent `homebrew.mxcl.ollama` on `127.0.0.1:11434`.
 **Models:** `bge-m3:latest` (1.2 GB), `qwen3:14b` (9.3 GB).
 **Date:** 2026-07-26.
-**Comparator:** the Fedora box (RX 6900 XT), measured 2026-07-26, as recorded in issue #33 and `NEXT-STEPS.md`.
+**Comparator:** the Fedora box (RX 6900 XT), measured 2026-07-26, as recorded in issue #33 and the then-current handoff (`NEXT-STEPS.md`.
+
+---
+
+> ## ⚠ Correction — two interpretations below are withdrawn
+>
+> **Added 2026-07-27, after the follow-up investigation in `research/gate-b-overshoot.md`. Read this before §1.**
+>
+> **No measured latency in this document changes, and Gate B's PASS stands** (if anything strengthened — see `gate-b-overshoot.md` §5.4). What was wrong is the interpretation of two things.
+>
+> **1. The "2.43x overshoots #32's 1.83–2.22x band" comparison is a category error.** `research/macos-spike-inference.md` §19.3 decomposes that band: it is a blend of a **4.30x prefill** ratio and a **1.80x decode-bandwidth** ratio, mixed in the ~12–30% prefill / ~70–88% decode proportion that `qwen3:14b` extraction happens to have. **`bge-m3` is an encoder — one forward pass, 100% prefill.** Its correct comparator is the **4.30x prefill column**, not the blend, and against that 2.43x is an **undershoot**, not an overshoot. Two riders: the band's "flat across model size" property is flat across *parameter count at a fixed workload shape* — input length was never varied — and the 4.30x was modelled for a **20-core** M4 Pro, where this machine has **16** (naive prediction ~5.2x). Nor is 2.43x a constant: the measured Mac÷Fedora ratio slides from ~1.0–1.3x at 128 tokens to 2.39x at 1,839 to ~2.45x at 2,048. It is a property of choosing 1,839 tokens. See `research/gate-b-overshoot.md` §1.
+>
+> **2. Flash attention is not a no-op on `bge-m3`.** §Instruments below infers that `OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE` "should not touch these numbers" because an encoder allocates no KV cache. The reasoning is wrong, and so is the conclusion for one of the two variables. **Measured:** turning flash attention **off** costs **+19.3% at 1,839 tokens and +28.7% at 6,144 tokens** — flash attention is a *fused attention kernel*, not solely a KV-cache optimisation, and a non-causal encoder's self-attention benefits from the fusion too. `OLLAMA_KV_CACHE_TYPE` on its own **is** a genuine no-op (≤1.5%). There is also a **coupling hazard**: `OLLAMA_KV_CACHE_TYPE=q8_0` with flash attention **off** makes `bge-m3` fail to load entirely (`V cache quantization requires flash_attn`, hard **500** on `/api/embed`). See `research/gate-b-overshoot.md` §3.
+>
+> **3. Also corrected: the Fedora box was not missing these variables.** Both `OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE` are set on Fedora, **since 2026-07-22 — before any benchmarking**. The statements below that the Fedora comparator "did not have them" are wrong and are struck. (The cross-machine effect is nil for a second reason as well: Ollama's default already enables flash attention.)
 
 ## Instruments
 
@@ -53,7 +95,9 @@ All three import `research/ladder-probe/corpus.py` (80 committed synthetic subje
 
 ### A configuration difference that is not hardware
 
-**⚠ WITHDRAWN — see the correction block at the top of this file. Fedora has both, set 2026-07-22.** The original claim read: *"Homebrew's Ollama LaunchAgent sets `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`; the Fedora box did not."* This is recorded in every artefact (`server_env`). Both options act on the attention/KV-cache path of a *causal decoder*; `bge-m3` is a non-causal encoder invoked through `/api/embed`, which allocates no KV cache, so they should not touch the Gate B numbers — but that is an inference from what the options do, **not** something measured here. Do not read the Mac÷Fedora ratios below as pure hardware difference without noting this. `OLLAMA_KEEP_ALIVE` is **not** set on this machine (Ollama's 5-minute default applies); every measurement nevertheless passes `keep_alive` explicitly.
+**Homebrew's Ollama LaunchAgent sets `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`; ~~the Fedora box did not~~.** This is recorded in every artefact (`server_env`). ~~Both options act on the attention/KV-cache path of a *causal decoder*; `bge-m3` is a non-causal encoder invoked through `/api/embed`, which allocates no KV cache, so they should not touch the Gate B numbers — but that is an inference from what the options do, **not** something measured here.~~ Do not read the Mac÷Fedora ratios below as pure hardware difference without noting this.
+
+> **⚠ Corrected 2026-07-27 — see the correction block above; measured in `research/gate-b-overshoot.md` §3.** Fedora **does** have both variables, set **2026-07-22, before any benchmarking**. And the no-op inference is wrong for flash attention: turning it **off** costs **+19.3% at 1,839 tokens and +28.7% at 6,144** — it is a fused attention kernel, which an encoder's self-attention benefits from as much as a decoder's. `OLLAMA_KV_CACHE_TYPE` alone **is** a measured no-op (≤1.5%). The correct statement is that these variables have **no cross-machine effect** — both machines have them on, and flash attention is Ollama's default anyway. **Hazard:** `OLLAMA_KV_CACHE_TYPE=q8_0` with flash attention off makes `bge-m3` fail to load at all (`V cache quantization requires flash_attn`, hard **500** on `/api/embed`). `OLLAMA_KEEP_ALIVE` is **not** set on this machine (Ollama's 5-minute default applies); every measurement nevertheless passes `keep_alive` explicitly.
 
 ---
 
@@ -80,7 +124,9 @@ The warm distribution is extraordinarily tight — a 24 ms total range across 25
 | Same, cold incl. model load | 1,261 ms | **1,376 ms** | **1.09×** |
 | Query embed, warm | 87 ms | **99 ms** | **1.14×** |
 
-The warm ratio (2.43×) sits just above the 1.83–2.22× platform penalty band #32 measured on the enrichment path. The cold and query ratios are far *below* it, because both are dominated by costs that are not compute: model load off an NVMe SSD (~870 ms of the 1,376 ms cold figure) and per-request overhead (a 15-token query cannot express a GPU throughput difference).
+~~The warm ratio (2.43×) sits just above the 1.83–2.22× platform penalty band #32 measured on the enrichment path.~~ The cold and query ratios are far *below* it, because both are dominated by costs that are not compute: model load off an NVMe SSD (~870 ms of the 1,376 ms cold figure) and per-request overhead (a 15-token query cannot express a GPU throughput difference).
+
+> **⚠ Corrected 2026-07-27 — the struck sentence compared the wrong things; see `research/gate-b-overshoot.md` §1.** The 1.83–2.22× band is a **blend** of a 4.30× prefill ratio and a 1.80× decode-bandwidth ratio, mixed in `qwen3:14b`'s ~12–30% prefill / ~70–88% decode proportion (`research/macos-spike-inference.md` §19.3). **`bge-m3` is an encoder: 100% prefill**, so its comparator is the **4.30×** column and 2.43× is an **undershoot** of it, not an overshoot — and more so on this machine, since the 4.30× was modelled for a **20-core** M4 Pro against this one's **16** (naive prediction ~5.2×). The band's "flat across model size" property is flat across *parameter count at a fixed workload shape*; input length was never varied. **Nor is 2.43× a constant:** the measured Mac÷Fedora ratio slides from ~1.0–1.3× at 128 tokens to 2.39× at 1,839 to ~2.45× at 2,048, so the table's 2.43× is a property of the chosen input length, not of the hardware. The measured latencies above are unchanged and reproduce to within 0.5%; only this comparison was wrong.
 
 ## Verdict
 
@@ -244,7 +290,7 @@ This is a *known* consequence of the enrichment budget already documented in `re
 
 ## Carried forward
 
-1. **Record the LaunchAgent's `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` as part of the deployment's pinned configuration.** They arrived from Homebrew rather than from a decision, which is reason enough. ~~and the Fedora comparator did not have them~~ — **withdrawn, Fedora has both** (see the correction block); they are not a confound.
+1. **Record the LaunchAgent's `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` as part of the deployment's pinned configuration.** They arrived from Homebrew, not from a decision, ~~and the Fedora comparator did not have them~~. **Corrected 2026-07-27:** Fedora has both, set 2026-07-22 before any benchmarking, so there is no cross-machine difference here (`research/gate-b-overshoot.md` §3). Pin them anyway, and pin them **together**: flash attention off costs +19.3% at 1,839 tokens / +28.7% at 6,144, and `OLLAMA_KV_CACHE_TYPE=q8_0` with flash attention off prevents `bge-m3` loading at all (hard 500 on `/api/embed`).
 2. **The enrichment runner must reject `done_reason == "length"`** rather than persisting entities parsed from a truncated response. Measured here at 60-80 subjects per entry; not capture-path.
 3. **Re-run `research/gate-b/truncation_probe.py` after any Ollama upgrade** — this now discharges the PRD's standing instruction with a committed, self-checking instrument rather than a manual procedure.
 4. **Gate B was measured idle and mains-powered.** Thermal derate, battery-saver, and `NUM_PARALLEL=1` contention with the enrichment model are unmeasured. The headroom is large enough that this is a note, not a risk.

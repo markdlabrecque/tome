@@ -45,6 +45,20 @@ of this runtime version** and should not be assumed to survive an upgrade.
 `research/gate-b/embed-latency-odin.json` already records its own runtime and environment and
 needs nothing here.
 
+## What is *not* 0.32.1
+
+**`raw-{control,fenced}-ollama0324*.jsonl` (five files, 40 draws, 2026-07-27) are Ollama
+0.32.4** and say so in every record — `run.py` self-stamps from that date, so these carry
+their own provenance and are not covered by the table above. `qwen3:14b`'s digest is
+unchanged across the upgrade (`bdbd181c33f2ed1b31c9`), so the model is identical by content
+and the runtime is the only variable between them and the 0.32.1 files.
+
+Their result is in `FENCE-FINDINGS.md`'s closing section, and `compare_runtime.py` verifies
+the stamp on every file before scoring. **The upgrade moved the numbers**: on 0.32.4 the
+unfenced control's `Event → Fact` is 7.0 against 4.7 on 0.32.1, and `qwen3:14b` became
+bit-reproducible where it had not been. Both are recorded in `CRITERIA.md`'s seventh
+amendment. This is the worked example of why this file exists.
+
 ## Why this matters beyond bookkeeping
 
 The fourth, fifth and sixth amendments establish that determinism on this stack varies by
