@@ -2172,7 +2172,7 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 | 12 Superseded decisions | #8, #9, #10, #11, #12, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #33, #34, #35 |
 | 13 Limitations & unmeasured claims | #16, #18, #19, #22, #23, #24, #25, #33, #34, #35, #36 |
 | 14 Surfaced while assembling | #28, #29, #30, #31, #33, #34, #35 |
-| Appendix A Independent review | #37 |
+| Appendix A Independent review | #37, #38, #39, #40, #41 |
 
 Research write-ups: [`research/local-llm-runtime-rocm.md`](./research/local-llm-runtime-rocm.md), [`research/mcp-remote-transport-tailscale.md`](./research/mcp-remote-transport-tailscale.md), [`research/embedding-model-short-english-retrieval.md`](./research/embedding-model-short-english-retrieval.md), [`research/oversize-enrichment-budget.md`](./research/oversize-enrichment-budget.md).
 
@@ -2180,7 +2180,14 @@ Research write-ups: [`research/local-llm-runtime-rocm.md`](./research/local-llm-
 
 ## Appendix A — Independent review: open gaps
 
-**Tracked as [#37](https://github.com/markdlabrecque/tome/issues/37).** Four entries — A.2, A.3, A.8 and A.15 — are proposed for separate tickets of their own, because each has a deadline the others do not: two must be settled before the first row is written, and two before the surface they concern meets real data. #37 tracks the remaining eleven.
+**Tracked as [#37](https://github.com/markdlabrecque/tome/issues/37), which carries eleven of the fifteen.** Four have tickets of their own, because each has a deadline the others do not:
+
+| Entry | Ticket | Must be settled before |
+|---|---|---|
+| A.15 | [#38](https://github.com/markdlabrecque/tome/issues/38) | the first row is written — raw is immutable |
+| A.8 | [#39](https://github.com/markdlabrecque/tome/issues/39) | the first row is written — raw is immutable |
+| A.2 | [#40](https://github.com/markdlabrecque/tome/issues/40) | §8.9's restore runbook is walked to prove it correct |
+| A.3 | [#41](https://github.com/markdlabrecque/tome/issues/41) | the MCP surface is exposed to an agent with real data behind it |
 
 *This appendix was produced by an independent review pass by a model that did not author any part of this document, working against commit `7c6b41b` on `main`. Its entries are recorded, not resolved — none changes any section above, and each awaits an owner's decision.*
 
