@@ -5,6 +5,20 @@ Coverage note: the corpus `marker` is a label, not always a literal token in the
 text (it is for Person/Project proper nouns, not for Decisions). So coverage is measured by
 content-word overlap between each drawn subject and each emitted entity, greedily matched —
 applied identically to every arm, which is what matters for a relative comparison.
+
+⚠ **`covered` and `fabricated` are MANY-TO-ONE and both read high. Do not use them for an
+absolute coverage number.** The loop below takes each subject's best entity independently and
+never excludes an entity already used, so one emitted entity can be credited with covering
+several subjects; `matched_ents` feeds only the `fabricated` tally, never exclusion. Measured
+inflation on this corpus: **+1.2 to +1.9 pp**. It has cost three published findings — #36's
+Person finding, #36's "0.9 pp fence coverage cost" (really 0.10 pp), and the ladder probe's
+headline coverage (14b 99.1% → 97.8%, 4b 92.5% → 90.6%).
+
+**Use `type_accuracy.pair()` instead**, which is one-to-one and greedy, or
+`paired_bootstrap.py`, which is built on it. The relative comparison this function was written
+for is still valid — the 14b-vs-4b gap barely moves — which is exactly why the defect survived
+this long. `fabricated` is not cited by any published claim; it carries the same defect
+unaudited.
 """
 import json, random, re, sys
 from pathlib import Path
