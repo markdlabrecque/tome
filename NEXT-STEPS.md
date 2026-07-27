@@ -6,7 +6,7 @@ Written to survive a context clear. Read this first; it should make re-deriving 
 
 The v1 PRD is **complete and closed** ([`PRD.md`](./PRD.md), 14 sections; wayfinding map #1 and assembly #27 both closed). On top of it, spike #32 decided to **move Tome to the on-device MacBook** (M4 Pro, 48 GB) — settled, not open, reasoning in #32's closing comment. Keep `qwen3:14b`; storage ~11.7 GB against ~15 GB available.
 
-Since the previous handoff, the three Fedora-side obligations have been worked. **Two are measured and waiting on you; one is mid-run.** The MacBook items (#33) are being run concurrently on that machine.
+Since the previous handoff, **all three Fedora-side obligations have been worked and are measured.** Every remaining step on them is a decision, not a measurement. The MacBook items (#33) are being run concurrently on that machine.
 
 ## Repo state
 
@@ -55,7 +55,7 @@ Full result in [`research/ladder-probe/CONFIDENCE-FINDINGS.md`](./research/ladde
 - **Item 4 is answered decisively, and it changes a behaviour the PRD believes it has.** Confidences occupy `{0.8, 0.9}` under the shipped prompt, so §3.3's *incumbent + 0.20* override is unreachable: **type stickiness is absolute, not a tunable margin.** An Entity can never be re-typed by a later extraction.
 - **Interaction with #36:** the fence raises separation slightly (−0.0175) and produced the only sub-0.7 confidences in the study (4b, 7.3%). Weak, one observation, but it means adopting the fence makes this channel marginally *less* useless — worth knowing before deciding whether the column survives.
 
-**Loose end I closed rather than left open:** my unconditional rewrite produced *fewer* fires than the gated prompt (zero), which the pre-registration did not anticipate and which points at my own wording rather than the model. A third wording — `prompt-forced.txt`, no opt-out, schema hint reworded — was run to settle it. Result recorded in the findings doc.
+**Loose end closed rather than left open:** my unconditional rewrite produced *fewer* fires than the gated prompt (zero), which the pre-registration did not anticipate and which pointed at my own wording rather than the model. A third wording — `prompt-forced.txt`, opt-out removed, schema hint changed off *"…if any"* — was run to settle it. **Also 0.0%, both models, 608 paired entities.** Three wordings, ~2,950 entities, empty on all of them: the failure is not an artifact of how it was asked for.
 
 ### 4. #34's remaining decisions — alongside #33
 
@@ -99,10 +99,12 @@ What `source` records when client info is absent, whether the column earns its p
 | `analyze.py` | recall and composition |
 | `type_accuracy.py` | **new** — classification against ground truth. The instrument never had this |
 | `compare_fence.py` / `compare_replicates.py` | **new** — paired A/B, and repeated-measures with degenerate-draw handling |
+| `prompt-forced.txt` | **new** — third `considered_types` wording; also 0.0% |
 | `confidence.py` | **new** — #35: per-stratum confidence, split-half placebo band, `considered_types` specificity, trigger sweep |
 | `CRITERIA.md` | pre-registration, **five amendments** — read 4 and 5 before trusting any replicate count |
 | `CONFIDENCE-CRITERIA.md` | **new** — #35 pre-registered |
 | `FENCE-FINDINGS.md` | **new** — #36's result |
+| `CONFIDENCE-FINDINGS.md` | **new** — #35's result |
 | `AMBIGUOUS-CORPUS.md` / `CONFIDENCE-SCORING.md` | **new** — corpus design and scorer reading guide |
 
 ## Things deliberately not done
