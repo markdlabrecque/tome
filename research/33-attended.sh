@@ -53,9 +53,12 @@ check)
 		printf '%s' "$BTM" | grep -c . | sed 's/^/BTM records read: /'
 		for L in homebrew.mxcl.ollama homebrew.mxcl.postgresql@18; do
 			printf '%s: ' "$L"
-			printf '%s' "$BTM" | grep -A8 -F "$L" \
-				| grep -m1 -iE 'disposition|disabled|enabled' \
-				|| echo "absent from a BTM dump that did parse (untracked, not disabled)"
+			# -B, not just -A: in a BTM record Disposition PRECEDES Identifier,
+			# so searching forward from the label never reaches it and reports
+			# a miss on a record that is present.
+			printf '%s' "$BTM" | grep -B8 -A2 -F "$L" \
+				| grep -m1 -iE 'disposition' \
+				|| echo "present but no Disposition line found -- inspect by hand"
 		done
 	fi
 	echo
