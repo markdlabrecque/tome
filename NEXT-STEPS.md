@@ -21,7 +21,7 @@ Since the previous handoff, the three Fedora-side obligations have been worked. 
 |---|---|---|
 | **#33** | MacBook on-machine confirmations | **Running on the Mac, concurrently** |
 | **#34** | `source` provenance may arrive `None` | **Verified.** Decisions open; one has a deadline |
-| **#35** | §13.4's 0.7 confidence threshold measures as inert | **Instrument built, probe running.** Decision open |
+| **#35** | §13.4's 0.7 confidence threshold measures as inert | **Measured.** Both mechanisms fail. Decision open |
 | **#36** | The unfenced entity types are the confusion sinks | **Measured, PASS.** Wording ratification open |
 
 ## What's waiting for you, in the order I'd spend it
@@ -44,9 +44,18 @@ One judgement rides with it: **the fence costs ~0.9 pp coverage at 14b, consiste
 
 Note I **declined #36's Person `_Avoid_` line** on evidence: Person is not a confusion sink, and its arrivals in the ticket were omissions misscored as misclassifications.
 
-### 3. #35 — evidence landing overnight
+### 3. #35 — measured. Both candidate mechanisms fail
 
-The probe is running. Whatever it returns, one finding is already fixed and it reshapes the ticket: **`considered_types` is gated on the very threshold that never fires** (`prompt.txt`: *"if your confidence is below 0.7 … record the alternatives"*). #35 item 2 proposes `considered_types` as the *alternative* to the numeric threshold, and as specified the two are coupled by construction — the alternative could not be observed while the thing it replaces gates it. Hence the gated/unconditional prompt axis in the run.
+Full result in [`research/ladder-probe/CONFIDENCE-FINDINGS.md`](./research/ladder-probe/CONFIDENCE-FINDINGS.md). **Verdict: abandon the numeric route; `considered_types` is not adoptable as measured.**
+
+- **Ambiguity is weakly detectable but not thresholdable.** Separation −0.013 to −0.015, replicated, outside the placebo floor, and measured against *length-matched* controls so it is not the sentence-complexity confound. But the best cut anywhere across eight arms catches **21.7%** against a pre-registered 50% bar, and `< 0.9` at 14b fires on 12.7% of unambiguous short controls to catch 14% of ambiguous ones.
+- **§13.4's 0.7 is dead:** zero of ~2,350 entities below it in seven of eight arms.
+- **The number is an artifact of the prompt asking for it.** Remove the clause naming 0.7 and 14b returns **exactly 1.000 on every entity in every stratum**. A self-report whose range collapses when you reword the request is not measuring the input.
+- **`considered_types` is emitted on every entity and is always `[]`** — verified in the raw payloads, not inferred. Overall fire rate 15 of ~2,350 (0.6%), none on the ambiguous stratum.
+- **Item 4 is answered decisively, and it changes a behaviour the PRD believes it has.** Confidences occupy `{0.8, 0.9}` under the shipped prompt, so §3.3's *incumbent + 0.20* override is unreachable: **type stickiness is absolute, not a tunable margin.** An Entity can never be re-typed by a later extraction.
+- **Interaction with #36:** the fence raises separation slightly (−0.0175) and produced the only sub-0.7 confidences in the study (4b, 7.3%). Weak, one observation, but it means adopting the fence makes this channel marginally *less* useless — worth knowing before deciding whether the column survives.
+
+**Loose end I closed rather than left open:** my unconditional rewrite produced *fewer* fires than the gated prompt (zero), which the pre-registration did not anticipate and which points at my own wording rather than the model. A third wording — `prompt-forced.txt`, no opt-out, schema hint reworded — was run to settle it. Result recorded in the findings doc.
 
 ### 4. #34's remaining decisions — alongside #33
 
@@ -67,7 +76,7 @@ What `source` records when client info is absent, whether the column earns its p
 ## Traps that cost time — the list grew tonight
 
 - **The probe is not reproducible.** An unchanged prompt moved `Event → Fact` by 3 with nothing changed but the wall clock. `temperature: 0` and a fixed `seed` fix sampling, not kernel scheduling, and `keep_alive: 0` reloads the model every call. **Never read a single run as a measurement.**
-- **Determinism is model-dependent.** `qwen3:4b` reproduces **bit-exactly** within a session; `qwen3:14b` does not. Replicate *files* are not replicate *observations* — **hash the payloads** before treating replicate count as sample size. This silently turned three 4b runs into one.
+- **Determinism varies by the whole configuration — model × prompt × corpus — and is not predictable from any part of it.** `qwen3:4b` reproduces bit-exactly; `qwen3:14b` does not on the control prompts but *does* on the fenced ones, which is the opposite of what it did on `corpus.py`. Replicate *files* are not replicate *observations* — **hash the payloads** before treating replicate count as sample size. This silently turned three 4b runs into one. (`CRITERIA.md`, fifth and sixth amendments.)
 - **`considered_types` is gated on the 0.7 threshold** in the prompt, so it could never have been observed populated. A field's absence may be an instruction rather than a behaviour.
 - **`format: "json"` induces degeneration** — previously `qwen3:8b`, now also `4b` under a ~150-token-longer prompt (cap hit, 1 entity from 40). Per-model hazard, not a free safety net.
 - **Scoring schemes conflate omission with misclassification.** Letting one emitted entity match several subjects lets a *missing* entity score as a *wrong* one. Cost: the entire Person finding in #36.
