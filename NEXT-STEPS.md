@@ -1,39 +1,58 @@
 # Next steps — handoff, updated 2026-07-27 (overnight session)
 
-> ## ⚠ READ FIRST — one thing is in flight and it blocks a ratification
+> ## ⚠ READ FIRST — the runtime scare is resolved; the ratification is unblocked but harder
 >
 > **The Fedora box was upgraded Ollama 0.32.1 → 0.32.4** (2026-07-27, to settle a #33
 > question — it settled it: the version is not the explanation for the 2.34x warm ratio).
-> **The fenced arm re-run on 0.32.4 no longer looks fenced:** `Event -> Fact` **1,1,1 -> 3**,
-> errors 7 -> 10, accuracy 97.7% -> 96.8%. Every one of those falls inside the **0.32.1
-> control's** range (`Event -> Fact` 3-6, errors 9-11, accuracy 96.5-97.1%).
+> A fenced-only re-run then looked unfenced, which put #36's wording on hold. **The
+> within-runtime A/B is now complete (32 draws, 2 control + 3 fenced replicates on 0.32.4)
+> and the scare does not survive it.**
 >
-> **This is not yet a conclusion** — it compares 0.32.4-fenced against 0.32.1-control, which
-> confounds runtime with condition (the fourth amendment's exact error), and it is n=1.
+> **The fence still separates from its own control on 0.32.4:**
 >
-> **A within-runtime A/B was launched:** 2 control + 2 more fenced arms on 0.32.4. It writes
-> into **this worktree, not the main checkout**:
-> `.claude/worktrees/gate-b-doc-correction/research/ladder-probe/raw-{control,fenced}-ollama0324*.jsonl`.
-> `run.py` is resumable — re-run the same command and it skips completed `(model, seed)` pairs.
-> From `research/ladder-probe/`:
+> | | 0.32.1 control | 0.32.1 fenced | 0.32.4 control | 0.32.4 fenced |
+> |---|---|---|---|---|
+> | `Event → Fact` | 4.7 [3–6] | 1.0 | **7.0** | **3.0** |
+> | real errors | 10.0 | 7.0 | 11.0 | 10.0 |
+> | type accuracy | 96.78% | 97.74% | 96.49% | 96.83% |
+> | coverage | 98.4% | 97.5% | 99.1% | 98.8% |
 >
-> ```
-> PROMPT=prompt.txt        OUT=raw-control-ollama0324.jsonl    ARMS=qwen3:14b FORMAT=json python3 run.py
-> PROMPT=prompt.txt        OUT=raw-control-ollama0324-r2.jsonl  ARMS=qwen3:14b FORMAT=json python3 run.py
-> PROMPT=prompt-fenced.txt OUT=raw-fenced-ollama0324-r2.jsonl   ARMS=qwen3:14b FORMAT=json python3 run.py
-> PROMPT=prompt-fenced.txt OUT=raw-fenced-ollama0324-r3.jsonl   ARMS=qwen3:14b FORMAT=json python3 run.py
-> ```
+> The earlier alarm was the fourth amendment's error in miniature: 0.32.4-fenced (3) was
+> being read against the *0.32.1* control (3–6). **The whole distribution shifted** — 0.32.4
+> extracts more and types it slightly worse — so 3 is a 4-count reduction from where the
+> control now sits, not a null result. All five pre-registered thresholds still pass.
 >
-> **Consequence: hold #36's `CONTEXT.md` wording ratification** until this lands. Posted to #36.
-> If the 0.32.4 control also lands near 3, #36's PASS was a property of Ollama 0.32.1. Nothing
-> else in #36 is affected — the corrected error structure, the declined Person fence, and the
-> Fact-share finding all stand independently of runtime.
+> **What genuinely got worse, and it bears on the decision:**
 >
-> **The lesson worth keeping either way:** a runtime upgrade *is* a Derivation Epoch change,
-> and this project had no mechanism that would have noticed. Same class as #17's
-> embedding-digest argument, now with a worked example.
-> `research/ladder-probe/PROVENANCE.md` stamps every pre-upgrade result as 0.32.1 with model
-> digests; `run.py` now self-stamps every record.
+> - **Net benefit is now 1 real error per 8 draws** (+0.34 pp accuracy), down from 3
+>   (+0.96 pp). The fence removes 4.0 `Event → Fact` and adds 2.0 `Commitment → Decision`
+>   plus 1.0 `Commitment → Fact`. The pre-registered relocation check tests the *largest
+>   single* increase, not the sum, and would be marginal on the sum — a criterion defect,
+>   recorded in `CRITERIA.md`'s **seventh amendment**.
+> - **`Commitment → Decision` +2.0 per run replicated exactly on both runtimes.** It is no
+>   longer "may be noise"; it is an established side effect of the "rule out every other
+>   type" clause.
+> - **0.32.4 is bit-deterministic** where 0.32.1 was not: all three fenced replicates are
+>   byte-identical, the control identical on 7 of 8 seeds. So each condition carries **one**
+>   independent observation and the non-overlap test is formally passed but epistemically
+>   empty. The only measured noise floor this project has is 0.32.1's; the −4.0 effect
+>   exceeds it, but that floor is borrowed from a runtime this box no longer runs.
+> - **The recall cost shrank** from −0.9 pp to −0.3 pp — the open judgement call is cheaper
+>   than when it was flagged, and also buying less.
+>
+> **Consequence: #36's `CONTEXT.md` wording ratification is unblocked and still yours.** The
+> wording is not an artifact of 0.32.1. Whether 1 net error per 8 draws, against a known
+> +2.0 `Commitment → Decision` side effect, justifies a permanent glossary change is a domain
+> call and was deliberately left open. Full write-up: the closing section of
+> `research/ladder-probe/FENCE-FINDINGS.md`. Re-derive with
+> `cd research/ladder-probe && python3 compare_runtime.py` — it re-scores the 0.32.1 files
+> too, and reproduces this document's published baseline table before reporting anything new.
+>
+> **The lesson worth keeping:** a runtime upgrade *is* a Derivation Epoch change, and this
+> project had no mechanism that would have noticed. Same class as #17's embedding-digest
+> argument, now with a worked example. `research/ladder-probe/PROVENANCE.md` stamps every
+> pre-upgrade result as 0.32.1 with model digests; `run.py` now self-stamps every record.
+> **There is still nothing that *fails* when the epoch moves under a committed result.**
 
 Written to survive a context clear. Read this first; it should make re-deriving anything unnecessary.
 
@@ -57,7 +76,7 @@ Since the previous handoff, **all three Fedora-side obligations have been worked
 | **#33** | MacBook on-machine confirmations | **Both gates PASS.** ⚠ Evidence unpushed; some items uncovered |
 | **#34** | `source` provenance may arrive `None` | **Verified.** Decisions open; one has a deadline |
 | **#35** | §13.4's 0.7 confidence threshold measures as inert | **Measured.** Both mechanisms fail. Decision open |
-| **#36** | The unfenced entity types are the confusion sinks | **Measured, PASS.** Wording ratification open |
+| **#36** | The unfenced entity types are the confusion sinks | **Measured, PASS on both runtimes.** Wording ratification open |
 
 ## What's waiting for you, in the order I'd spend it
 
@@ -73,9 +92,15 @@ Note the bound carries its own clock in the other direction: `mcp` 1.x caps at p
 
 ### 2. #36's wording — ratify, don't grill
 
-The fence is measured and passes every pre-registered threshold. The proposed `CONTEXT.md` diff is in [`research/ladder-probe/FENCE-FINDINGS.md`](./research/ladder-probe/FENCE-FINDINGS.md), written in the glossary's register and **deliberately not applied**.
+The fence passes every pre-registered threshold **on both runtimes**, measured within each. The proposed `CONTEXT.md` diff is in [`research/ladder-probe/FENCE-FINDINGS.md`](./research/ladder-probe/FENCE-FINDINGS.md), written in the glossary's register and **deliberately not applied**.
 
-One judgement rides with it: **the fence costs ~0.9 pp coverage at 14b, consistently** — the fenced condition sits below the control's worst run. The pre-registered bound accepted that in advance; you may not. You now have the number rather than an opinion.
+The judgement that rides with it changed shape after the 0.32.4 re-measurement, so decide on these numbers rather than the ones the body of that document reports:
+
+- **Recall cost is now −0.3 pp**, not −0.9 pp. Cheaper than when it was flagged.
+- **Net accuracy gain is now +0.34 pp — one real error per eight draws**, down from three. The targeted confusion still more than halves (`Event → Fact` 7 → 3), but relocation into `Commitment → Decision` (+2.0) and `Commitment → Fact` (+1.0) gives back three-quarters of it.
+- **`Commitment → Decision` +2.0 per run is now established, not suspected** — identical on both runtimes. Neither fence touches that boundary; it is the "rule out every other type" clause pushing borderline Commitments at the nearest fenced neighbour. If you ratify, ratify knowing you are buying a smaller `Event → Fact` at the price of a larger `Commitment → Decision`.
+
+**Trimming the "rule out every other type" clause and keeping only the two `_Avoid_` lines is the obvious untested variant** — it is the clause both side effects are attributed to. Nothing measures it yet; that would be one more A/B, ~15 min of GPU.
 
 Note I **declined #36's Person `_Avoid_` line** on evidence: Person is not a confusion sink, and its arrivals in the ticket were omissions misscored as misclassifications.
 
@@ -127,7 +152,9 @@ What `source` records when client info is absent, whether the column earns its p
 
 **Ladder probe (8 paired draws of 40):** `qwen3:14b` 1.01 ent/subj, 99.1% coverage, 41 tok/s. `qwen3:4b` 0.95, 92.5%, 95 tok/s, **7.5% of subjects produce no entity**. `qwen3:8b` worst rung, unusable in both decoding configs.
 
-**The fence (#36), `qwen3:14b`, three independent runs per condition:** `Event → Fact` **4.7 [3–6] → 1.0**, ranges non-overlapping; type accuracy **96.8% → 97.7%**; coverage **98.4% → 97.5%**. At `qwen3:4b` (directional only — see traps): `Event → Fact` 9.3 → 2.0, accuracy 91.1% → 92.6%.
+**The fence (#36), `qwen3:14b`, three independent runs per condition, Ollama 0.32.1:** `Event → Fact` **4.7 [3–6] → 1.0**, ranges non-overlapping; type accuracy **96.8% → 97.7%**; coverage **98.4% → 97.5%**. At `qwen3:4b` (directional only — see traps): `Event → Fact` 9.3 → 2.0, accuracy 91.1% → 92.6%.
+
+**The same fence on Ollama 0.32.4 (2 control + 3 fenced, `qwen3:14b`):** `Event → Fact` **7.0 → 3.0**; type accuracy **96.49% → 96.83%**; coverage **99.1% → 98.8%**; net real errors 11 → 10. The 0.32.4 *control* is worse than the 0.32.1 control on the target confusion (7.0 vs 4.7) and better on coverage (99.1% vs 98.4%) — the runtime shifted the whole distribution. Not re-run at 4b.
 
 **#36's real error structure, corrected:** 36 real misclassifications, not the ticket's 31 — **Fact 17, Project 11, Preference 3, Decision 2, Event 2, Commitment 1, Person 0.** Plus 10 omissions that the original scheme miscounted as misclassifications, 8 of them landing on Person.
 
@@ -136,7 +163,8 @@ What `source` records when client info is absent, whether the column earns its p
 ## Traps that cost time — the list grew tonight
 
 - **The probe is not reproducible.** An unchanged prompt moved `Event → Fact` by 3 with nothing changed but the wall clock. `temperature: 0` and a fixed `seed` fix sampling, not kernel scheduling, and `keep_alive: 0` reloads the model every call. **Never read a single run as a measurement.**
-- **Determinism varies by the whole configuration — model × prompt × corpus — and is not predictable from any part of it.** `qwen3:4b` reproduces bit-exactly; `qwen3:14b` does not on the control prompts but *does* on the fenced ones, which is the opposite of what it did on `corpus.py`. Replicate *files* are not replicate *observations* — **hash the payloads** before treating replicate count as sample size. This silently turned three 4b runs into one. (`CRITERIA.md`, fifth and sixth amendments.)
+- **Determinism varies by the whole configuration — model × prompt × corpus × runtime — and is not predictable from any part of it.** `qwen3:4b` reproduces bit-exactly; `qwen3:14b` does not on the control prompts but *does* on the fenced ones, which is the opposite of what it did on `corpus.py`; and on **Ollama 0.32.4 `qwen3:14b` reproduces bit-exactly on both prompts**, where on 0.32.1 it reproduced on neither. Replicate *files* are not replicate *observations* — **hash the payloads** before treating replicate count as sample size. This silently turned three 4b runs into one, and it makes the 0.32.4 non-overlap test empty. (`CRITERIA.md`, fifth, sixth and seventh amendments.)
+- **A pre-registered check can pass on a technicality.** The relocation criterion tests the *largest single* new confusion against the reduction, not the sum. On 0.32.4 it passes (+2.0 < −4.0) while summed relocation (+3.0) cancels three-quarters of the gain. Read the criterion's exact words before quoting it as passed. (Seventh amendment.)
 - **`considered_types` is gated on the 0.7 threshold** in the prompt, so it could never have been observed populated. A field's absence may be an instruction rather than a behaviour.
 - **`format: "json"` induces degeneration** — previously `qwen3:8b`, now also `4b` under a ~150-token-longer prompt (cap hit, 1 entity from 40). Per-model hazard, not a free safety net.
 - **Scoring schemes conflate omission with misclassification.** Letting one emitted entity match several subjects lets a *missing* entity score as a *wrong* one. Cost: the entire Person finding in #36.
@@ -159,6 +187,8 @@ What `source` records when client info is absent, whether the column earns its p
 | `analyze.py` | recall and composition |
 | `type_accuracy.py` | **new** — classification against ground truth. The instrument never had this |
 | `compare_fence.py` / `compare_replicates.py` | **new** — paired A/B, and repeated-measures with degenerate-draw handling |
+| `compare_runtime.py` | **new** — the fence scored *within* each Ollama version, with per-file runtime-stamp checks and payload hashing. Reproduces the 0.32.1 published table before scoring 0.32.4 |
+| `PROVENANCE.md` | **new** — runtime and model digests for every measurement here |
 | `prompt-forced.txt` | **new** — third `considered_types` wording; also 0.0% |
 | `confidence.py` | **new** — #35: per-stratum confidence, split-half placebo band, `considered_types` specificity, trigger sweep |
 | `CRITERIA.md` | pre-registration, **five amendments** — read 4 and 5 before trusting any replicate count |

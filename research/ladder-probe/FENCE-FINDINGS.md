@@ -5,6 +5,16 @@ the measurement half of issue [#36](https://github.com/markdlabrecque/tome/issue
 Criteria pre-registered in `CRITERIA.md`, third amendment, with the fourth and fifth
 amendments recorded before the result was scored.
 
+> ### ⚠ Re-measured on Ollama 0.32.4 — read *"The fence on Ollama 0.32.4"* at the foot of this file
+>
+> Every number in the body of this document was measured on **Ollama 0.32.1**
+> (`PROVENANCE.md`). The box was upgraded to **0.32.4** on 2026-07-27 and the A/B was re-run
+> whole. **The fence survives: `Event → Fact` 7 → 3 against its own control, all five
+> pre-registered thresholds still pass.** But the baseline moved, the net accuracy gain
+> shrank from +0.96 pp to +0.34 pp, and the runtime became bit-deterministic — so the
+> supporting evidence is thinner than the body of this file describes. The closing section
+> gives the numbers and what they do and do not license.
+
 ## Verdict
 
 **PASS at `qwen3:14b`, measured. PASS at `qwen3:4b`, directional.** The distinction is not
@@ -151,3 +161,106 @@ call. The measured wording, translated into the glossary's register:
   draw degenerated at the token cap under the fenced prompt, and 4b control draws degenerate
   too, so it is not fence-specific — but a ~150-token-longer prompt under a grammar mask is
   a combination that warrants per-model checking before shipping.
+
+---
+
+# The fence on Ollama 0.32.4
+
+**Run 2026-07-27 on the same Fedora box after the 0.32.1 → 0.32.4 upgrade**, same corpus,
+same two prompts, same eight seeds, same options, `qwen3:14b`, grammar-constrained. Two
+control replicates and three fenced. Scored by `compare_runtime.py`, which reproduces this
+document's 0.32.1 table exactly from the original files before scoring the new ones.
+
+**Why it was run.** The fenced arm alone was re-run first and looked unfenced, because it
+was compared against the *0.32.1* control — runtime confounded with condition, the fourth
+amendment's exact error. This compares each runtime's fence only to its own control.
+
+## Result: the fence separates on 0.32.4
+
+| metric | control ×2 | fenced ×3 | Δ |
+|---|---|---|---|
+| **`Event → Fact`** | **7.0 [7–7]** | **3.0 [3–3]** | **−4.0** |
+| real misclassifications | 11.0 | 10.0 | −1.0 |
+| type accuracy | 96.49% | 96.83% | +0.34 pp |
+| coverage | 99.1% | 98.8% | −0.3 pp |
+| ent/subj | 1.01 | 0.99 | −0.02 |
+| degenerate draws | 0 | 0 | — |
+
+All five pre-registered thresholds pass, as written: `Event → Fact` falls with
+non-overlapping ranges, accuracy rises, no *single* new confusion exceeds the reduction,
+coverage is inside 2 pp and ent/subj inside 0.05, and degeneracy is not raised.
+
+## What moved, and what it costs the argument
+
+**1. The runtime shifted the baseline, and that is the whole explanation of the scare.**
+The 0.32.4 *control* is worse on the target confusion than the 0.32.1 control:
+
+| | 0.32.1 control | 0.32.4 control |
+|---|---|---|
+| `Event → Fact` | 4.7 [3–6] | **7.0** |
+| type accuracy | 96.78% | 96.49% |
+| coverage | 98.4% | **99.1%** |
+| ent/subj | 0.98 | **1.01** |
+
+0.32.4 extracts *more* and types it slightly *worse*. So the fenced arm's `Event → Fact` 3
+— which sat inside the 0.32.1 control's 3–6 band and looked like a null result — is a
+4-count reduction from where the control now actually sits.
+
+**2. Determinism inverted, and it hollows out the non-overlap test.** On 0.32.1 this model
+was the reason the design became repeated-measures. On 0.32.4 the fenced prompt reproduces
+**byte-identically across all three replicates**, and the control across 7 of 8 seeds — the
+one differing draw scored identically on every metric. **Both conditions therefore carry one
+independent observation, and the zero-width ranges above are produced by determinism, not by
+stability.** The seventh amendment records this. Read the non-overlap verdict as satisfying
+the pre-registered form while carrying much less weight than the same words carried on
+0.32.1.
+
+The honest positive statement that survives: **the −4.0 effect exceeds the entire run-to-run
+spread of the only noise floor this project has ever measured** (0.32.1's control, which
+spanned 3 counts). That is a borrowed floor, and it is borrowed from a runtime this box no
+longer runs.
+
+**3. Most of the gain is now given back by relocation.** Per run:
+
+| confusion | control | fenced | Δ |
+|---|---|---|---|
+| `Event → Fact` | 7.0 | 3.0 | **−4.0** |
+| `Commitment → Decision` | 1.0 | 3.0 | **+2.0** |
+| `Commitment → Fact` | 1.0 | 2.0 | +1.0 |
+| `Person → Preference` | 2.0 | 2.0 | 0 |
+
+Reduction 4.0, summed increases 3.0, **net 1.0 real error per eight draws**. On 0.32.1 the
+net was 3.0. The pre-registered check compares the *largest single* increase (2.0) against
+the reduction (4.0) and passes; on the sum it would be marginal. That is a defect in the
+criterion, recorded in the seventh amendment, not a defect discovered in the fence.
+
+**4. `Commitment → Decision` is no longer "may be noise" — it replicated exactly.** Cost #2
+above said to watch it. Per run it is **+2.0 on both runtimes**, unchanged across an upgrade
+that moved every other quantity in the table. Neither fence touches that boundary. It is an
+established side effect of the "rule out every other type" clause, and it should be treated
+as one.
+
+**5. The recall cost — the open judgement call — got smaller.** Coverage −0.9 pp on 0.32.1,
+**−0.3 pp on 0.32.4**, and ent/subj −0.02. The trade this document flagged as *"buying
+classification accuracy with recall, which this project has not consciously made"* is on
+current evidence about a third as expensive as when it was flagged. It is also now buying
+less.
+
+## What this does and does not settle for the `CONTEXT.md` wording
+
+**Settles:** the proposed wording is not an artifact of Ollama 0.32.1. Its target confusion
+is the dominant 14b error on both runtimes, and the fence more than halves it on both.
+Nothing in the corrected error structure, the declined `Person` fence, or the Fact-share
+finding is runtime-dependent, and none of them moved.
+
+**Does not settle:** whether a **net 1 error per 8 draws** — +0.34 pp accuracy, against a
+known +2.0 `Commitment → Decision` side effect and −0.3 pp coverage — is worth a permanent
+change to the governing glossary. On 0.32.1 that trade was 3 errors for 0.9 pp of recall and
+the answer looked easy. It is a closer call now, and it is a domain call, not a measurement
+one. **Unratified and left open deliberately.**
+
+**A standing consequence regardless of the decision:** this whole re-measurement happened
+because an unrelated `dnf` upgrade silently changed a Derivation Epoch input, and nothing in
+the project would have noticed. `run.py` now self-stamps and `PROVENANCE.md` covers the
+back-catalogue, but there is still no mechanism that *fails* when the epoch moves under a
+committed result.
