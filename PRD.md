@@ -20,7 +20,7 @@ A personal memory-keeper for a single user, fully self-hosted.
 
 An **immutable raw layer** of manually captured entries — text plus an embedding, in Postgres with pgvector — is the sole source of truth. A **periodic, incremental, fully re-runnable enrichment process** derives a structured **entity layer** on top of it. An **MCP server is the only interface**, used by both AI chat clients and agents. Entity search is the default and primary query surface; raw semantic search is a secondary fallback the calling agent selects deliberately. There are no direct writes to the entity layer — entities only ever arrive by derivation from raw.
 
-All embedding and enrichment inference runs locally on the machine. All components run as systemd services and come back on boot.
+All embedding and enrichment inference runs locally on the machine. All components run as LaunchAgents/LaunchDaemons and come back on **login**, not boot — measured: a LaunchDaemon fired at +15 s after boot and a LaunchAgent at +20 s, both only after FileVault unlock, because `/Library/LaunchDaemons` itself lives on the encrypted Data volume.
 
 *Source: map Destination; #2, #3, #4, #6, #7.*
 
@@ -520,6 +520,8 @@ So the requirement is not that they count the same thing, but that **each counts
 
 `capture_entry` attempts the embedding inline with a **5-second timeout**. On timeout or Ollama error the row commits with `embedding NULL` and state `pending`, and the tool **returns success as normal**. There is no error to hand the caller and no extra branch — the fast path's `catch` *is* the deferred path.
 
+**Measured margin against the 5,000 ms budget, on this machine:** the ceiling-size embed is **447 ms warm**, and at the **2,048-token cap** (`TOME_MAX_ENTRY_TOKENS`, §7.8) two independent runs measured **486–492 ms warm** — roughly **10.2× headroom**. *(`research/33-gate-b-macbook.md`.)*
+
 **Nothing is lost to time**: phase 1 sweeps every row missing an embedding, raw is immutable, and full runs reconsider everything.
 
 **Visibility.** A single timeout is *routine*, not a signal — a structured log line only. Warning on it would make `warnings` noise and train it to be ignored. Escalation happens only on **persistence**: a row still un-embedded *after* a run completed means the pass failed its job, which counts toward `attempt_count` and feeds §5.10's warnings.
@@ -563,7 +565,7 @@ Exact spellings are the builder's; the distinctions are not.
 
 ### 4.8 Cadence and the idle path
 
-A **~15-minute monotonic systemd timer**, `OnBootSec≈5min`, **no `Persistent=`**. Every firing does two cheap checks **in order, before any model is loaded**:
+A **~15-minute cadence**, via launchd's `StartInterval=900` **without** `RunAtLoad` — the closest expressible equivalent to the old monotonic systemd timer with `OnBootSec≈5min` and no `Persistent=`; launchd has no monotonic-timer-since-boot concept, so this delays the first firing after each load by one full interval (15 minutes, not 5) rather than reproducing the original timing exactly. Every firing does two cheap checks **in order, before any model is loaded**:
 
 1. **Try the advisory lock, non-blocking. If it cannot be acquired, exit immediately.** A run is already underway. This is essential, not defensive: a full run takes hours and plows straight through dozens of timer windows, and even an incremental run can outlast 15 minutes on a large backlog. A skipped firing is **normal operation**, logged at debug level, and **must not** count as a failed run or touch `last_successful_run_at` — or a long full run would set off its own stale-run alarm.
 2. **Check `pending_count` and the un-embedded count** (both carrying `AND text IS NOT NULL`). Exit without loading any model if there is nothing to do, so idle cost is one query. Measured import cost for the runner is **0.17 s warm / 0.45 s cold**, which against a 15-minute timer is noise.
@@ -1026,7 +1028,7 @@ Recorded here because it was implicit across three tickets. **Ollama has no prio
 The resulting policy:
 
 - **`qwen3:14b` gets the GPU.** Enrichment is never interrupted.
-- **Capture gets correctness by degrading rather than waiting** — a 5 s inline budget, and on timeout the row commits with `embedding NULL` and the tool returns success, those timeouts not counting toward `attempt_count`.
+- **Capture gets correctness by degrading rather than waiting** — a 5 s inline budget, measured at ~10.2× headroom even at the 2,048-token cap (§4.5), and on timeout the row commits with `embedding NULL` and the tool returns success, those timeouts not counting toward `attempt_count`.
 - **Enrichment throughput quietly pays.** A mid-run capture stays `pending` for the next tick.
 
 *Source: #16 §7, #15 §5.*
@@ -1049,6 +1051,8 @@ So `tome.db` (schema + queries, holding the Tombstone predicate exactly once) an
 
 Cost accepted: there are no declarative models to double as this document's schema section. `schema.sql` plus the migration files serve that role.
 
+⚠ **`schema.sql` does not exist yet**, same as `uv.lock` below — it is a target this document describes, not a file on disk.
+
 **Dependency set:** `mcp`, `psycopg[binary,pool]`, `pgvector`, `ollama`, `pydantic-settings`, with `uvicorn` and `starlette` arriving via `mcp`. Dev: `pytest`, `pytest-asyncio`, `ruff`. Pinned by `uv.lock`, deployed with `--frozen` — which also satisfies the standing advice to pin the SDK and the spec revision built against.
 
 **Two pinning mechanisms, doing different jobs — see §8.8 for the reasoning, which is not duplicated here.** `uv.lock` pins the *exact resolved versions* deployed; `pyproject.toml`'s `mcp>=1.28,<2` bounds what any *future* re-lock is allowed to resolve to. The lock alone is insufficient: regenerate it after 2026-07-28 without the bound and it resolves `mcp` 2.x, where §7.5's mechanism has no floor under it.
@@ -1060,6 +1064,8 @@ Cost accepted: there are no declarative models to double as this document's sche
 ### 7.2 Migrations
 
 **Plain numbered SQL files (`migrations/NNN_*.sql`) plus a ~40-line runner**, each applied in its own transaction against a `schema_migrations(version, applied_at)` table.
+
+⚠ **Neither the `migrations/` directory nor the runner exists yet.** Same status as `uv.lock` (§7.1) and `schema.sql` above: described here, not yet built.
 
 **Alembic rejected on measurement:** `alembic init` generates ~255 lines of scaffolding, and its dependency tree pulls **SQLAlchemy in full** plus greenlet, mako and markupsafe — purely to obtain an ordered-script runner, immediately after the ORM was rejected. Its remaining advantage, downgrades, is weak here: the raw layer's recovery path is a **restore**, not a reverse migration, and the derived layer has nothing to reverse because full mode re-derives it.
 
@@ -1218,7 +1224,6 @@ stop tome-enrich.timer
 
 **`/etc/tome/tome.env`, via `EnvironmentFile=`.** Contents:
 
-- the `Host` allowlist — the literal short name, the tailnet IPv4 and IPv6, `localhost`/`127.0.0.1`, and a **suffix pattern** (`*.tailc0e3c3.ts.net`) so a *device* rename cannot break every client
 - model names
 - the per-request `num_ctx` ceiling
 - the database URL
@@ -1226,8 +1231,6 @@ stop tome-enrich.timer
 - **`TOME_MAX_ENTRY_TOKENS`** — the measured effective embedding context, ~2048
 
 **In code, not `tome.env`** — the extraction prompt and the entity-type definitions (§4.9), `context`'s 1,000-char cap, and the 500-token context allowance. The dividing line: `tome.env` holds things *measured against something that can move under you*; code holds design constants, which belong where they are reviewed alongside what they feed.
-
-**Deriving the allowlist at startup from `tailscale status` was rejected**: it never drifts, but the server then cannot start until `tailscaled` is not merely running but *authenticated*, reinstating exactly the startup dependency §7.4 was designed to remove — a boot with the network down would leave Tome entirely down. The drift risk is rare and manual; the startup dependency would bite on every slow-network boot. And a 403 that names the mismatch makes the failure self-diagnosing.
 
 **The epoch fingerprint reads specific named keys from this file, never a hash of it** — otherwise adding a host to the allowlist or changing backup retention would register as a rule change.
 
@@ -1239,13 +1242,15 @@ stop tome-enrich.timer
 
 | Path | Contents |
 |---|---|
-| `/var/lib/pgsql/data` | Postgres data (Fedora default). **`chattr +C` before `initdb`.** |
+| `/opt/homebrew/var/postgresql@18` | Postgres data (Homebrew default PGDATA on Apple Silicon). |
 | `/var/lib/tome/` | Tome state |
 | `/var/lib/tome/dumps/` | pre-wipe and pre-migrate dumps |
 | `/var/lib/tome/backups/` | daily dumps, ledger, `tome.env` copy — **`0700`, owned by `tome`** |
 | `/opt/tome/` | code + venv, root-owned |
 
-**Clock.** NTP stays as a named exception (§1.3). **Fix the RTC properly rather than relying on sync to paper over it:** `RTC in local TZ: yes` is currently set, the direction systemd documents as not recommended and as mishandling DST. Correct it on the **Windows** side — `HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation\RealTimeIsUniversal` (DWORD) `= 1` — then `timedatectl set-local-rtc 0` on Fedora. The clock is then right *before* the network comes up, and NTP becomes a correction rather than a crutch.
+⚠ **The `/var/lib/tome/` and `/opt/tome/` paths above are Fedora conventions (FHS system directories) and have no settled macOS equivalent yet.** There is no dual boot and no SELinux-style path convention on the target; whether Tome's state and code land under `~/Library/Application Support/tome`, `/opt/homebrew/var/tome`, or somewhere else is a decision this pass does not make. Left as-is pending that decision rather than guessed at.
+
+**Clock.** There is no dual boot and no Windows install on the target, so the RTC-in-local-time fix that used to run through the Windows registry (`RealTimeIsUniversal`) plus `timedatectl set-local-rtc 0` does not apply — macOS has no `timedatectl`, and its RTC handling is not a Fedora-style local-vs-UTC setting to correct. This material is dropped rather than replaced; NTP stays as a named exception (§1.3).
 
 **The server obligation this creates:** `captured_at` is caller-supplied, so the clock that matters is whichever machine runs the client — capture from the MacBook and it is the MacBook's clock. Since raw is immutable and episodic natural keys are date-scoped, a wrong clock writes a permanently wrong date that every full re-run faithfully reproduces. **So the server compares the incoming `captured_at` against its own clock and flags a wild disagreement** rather than silently accepting it. It must also **tolerate a future-dated `last_successful_run_at`**, which a backwards correction after boot can produce.
 
@@ -1542,7 +1547,7 @@ The manual half stands: **re-run the `num_batch` ceiling probe after any hand-dr
 
 **Written here, and walked by hand once at deploy time to prove it is correct.** The risk being managed is the untried runbook, not the artifact — getting the order wrong: restoring before installing pgvector, forgetting the ledger replay, restoring globals after the database.
 
-1. **Install the pgvector RPM.** The dump opens with `CREATE EXTENSION vector` and will fail without it.
+1. **Install pgvector** — `brew install pgvector` against `postgresql@18` (0.8.5 confirmed working on this machine). The dump opens with `CREATE EXTENSION vector` and will fail without it.
 2. **Restore globals** — `psql -f` the `pg_dumpall --globals-only` output. Roles and grants must exist before the database references them.
 3. **Restore the database** — `pg_restore` the `-Fc` dump.
 4. **Replay the retraction ledger** — an idempotent `DELETE` by id for every line. `tome-migrate` does this unconditionally on every start, so simply starting the system performs it; do it explicitly if starting is deferred. **If you are deliberately undoing a retraction, delete its line from the ledger *first*.**
@@ -1732,7 +1737,7 @@ Stated once, because it decides most of this list.
 
 **Any test fixture, sample, or eval artifact drawn from real memory content living in this repo.** Not deferred — ruled out. `markdlabrecque/tome` is **public**, and such artifacts contain real query text and real natural keys (a colleague's name, a question about their habits), which would publish exactly what the 90-day bound and the backup exclusion exist to contain. The committed research files are safe **only because their corpora are synthetic** — that was luck, and it is now policy. When a judged set lands, the leading candidate is a Postgres table: it inherits the backups, falls inside the retraction cascade, and cannot be pushed to a remote by accident. *(Source: #23 §9.)*
 
-**Mobile/iOS access.** Structurally incompatible with Tailscale-only ingress, not a deferral (§9.1). *(Source: #13.)*
+**Mobile/iOS access.** Structurally incompatible with the transport: a cloud-mediated connector cannot reach a loopback listener any more than it could reach a Tailscale-only one — there is no ingress path for it to arrive on. Not a deferral (§9.1). *(Source: #13.)*
 
 **Who *initiates* a capture** — user-directed versus a standing "capture anything notable from this session". **Outside the server's boundary rather than deferred:** the capture *path* is settled (MCP only) and the initiative never was; `capture_entry`'s prohibition covers the one dangerous case — an agent capturing its own inference as though the user had stated it. Beyond that, what prompts a call happens entirely in the calling conversation, is unobservable to Tome, and has no server-side lever, so there is nothing to specify. *(Source: #25.)*
 
@@ -1755,7 +1760,7 @@ Stated once, because it decides most of this list.
 
 **CLI quick-capture** and a **standalone non-MCP chat UI.** Roadmap; the MCP write tool is the only v1 capture path. *(Source: #6.)*
 
-**App-level auth beyond Tailscale.** Roadmap. *(Source: #5.)*
+**App-level auth beyond the loopback boundary.** Roadmap. *(Source: #5.)*
 
 **Chunked embedding of over-cap captures.** Roadmap, and feasible: one Raw Entry holding the full text (preserving the atomic write and the `→ { id }` contract) plus a child table of `(entry_id, ordinal, span, embedding)`, with `search_raw` querying chunks and deduping to entries. `/api/embed` already accepts an array and returns N vectors in one call, so the embed phase costs no more per token. **It raises the cap to the enrichment budget (~5×), not to unbounded** — going past that needs chunked *enrichment*, which breaks the one-entry-one-transaction state machine on its own "one malformed JSON failing fifty entries with no attribution" reasoning. **The stronger motivation is quality, not capacity** — a single vector over 1,400 words averages away specifics — which clusters it with document ingestion, the thing that would need it first. Mean-pooling chunks into one vector is the no-schema variant, but averaging spends exactly the quality that motivates chunking. **Judge it against what client-side splitting already gives for free:** merge-on-natural-key reassembles Entities across entries, and §4.10 *measured* that splitting is the better path anyway. What splitting actually loses is narrower than it sounds — `search_raw` returns a fragment instead of the whole note, and `captured_at`/`context` get duplicated. **If this lands it also reopens the one-embedder-per-layer question** (§6.5). *(Source: #18, #22 §5.)*
 
@@ -1763,7 +1768,7 @@ Stated once, because it decides most of this list.
 
 **Ageing out `enrichment_events` payload content** — deleting the JSONB body of superseded operational events while retaining the row, its timestamp and its outcome. Roadmap, and **the only form of pruning that would earn its place**, since capacity never justifies pruning rows at this scale. Motivated not by space but by the residue in §8.4. Deferred because retraction is uncommon and the alternatives cost real capability. **Named as the first thing to revisit** if the residue stops feeling acceptable. *(Source: #19.)*
 
-**Desktop notifications for stuck work** (`OnFailure=` firing `notify-send`). Roadmap. Technically feasible — `/run/user/1000/bus` exists and `notify-send` is installed — but it means hardcoding a uid into a system unit and goes silent when nobody is logged in. Affordable to defer because the attention interface plus `warnings` already surface stuck work inside the tool. **Known gap while deferred: that channel is dead if the MCP server itself fails to start**, which surfaces only as a Claude connection error — obvious that something is wrong, not *what*, requiring `journalctl --namespace=tome` to diagnose. *(Source: #15 §8, #26.)*
+**Desktop notifications for stuck work.** Roadmap. The Fedora mechanism (`OnFailure=` firing `notify-send` against `/run/user/1000/bus`, with a uid hardcoded into a system unit) does not carry over — there is no systemd, no `notify-send`, and no equivalent decided for launchd/macOS yet. **This needs a macOS-specific decision this pass does not make**, rather than a guessed-at mechanism. Affordable to defer because the attention interface plus `warnings` already surface stuck work inside the tool. **Known gap while deferred: that channel is dead if the MCP server itself fails to start**, which surfaces only as a Claude connection error — obvious that something is wrong, not *what*, requiring `journalctl --namespace=tome` to diagnose. *(Source: #15 §8, #26.)*
 
 **Per-entry contribution storage** — the genuinely correct answer to the retraction cascade's approximation (§8.3). *(Source: #18 §3.)*
 
@@ -1801,9 +1806,7 @@ Recorded so it is not rediscovered:
 | **Embedding-similarity entity resolution** | Merges above a threshold, and mis-merges **silently**. |
 | **An `attribution: stated \| inferred` field** | §5.11. |
 | **A regex scrubber on the log handler** | §7.10. |
-| **`tailscale serve`; restricting the firewalld zone** | §7.4. |
 | **Alembic; an ORM** | §7.1–7.2. |
-| **Deriving the Host allowlist from `tailscale status`** | §7.8. |
 | **The `UPDATE … SET embedding = NULL` re-embed runbook; folding re-embed into full mode** | §4.1. |
 | **Purging backups on retraction** | §8.3. |
 | **A weekly restore-into-scratch** | §8.2. |
@@ -1864,7 +1867,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] `raw_entries.prompt_eval_count` stored at capture. *(#18)*
 - [ ] Bounded `entities.summary` — **1,200 chars**, a starting point (§13.4). *(#16)*
 - [ ] Type Override persists across full mode; full mode's reset is `WHERE text IS NOT NULL`. *(#14)*
-- [ ] `schema_migrations(version, applied_at)`; numbered SQL files, each in its own transaction. *(#20)*
+- [ ] ⚠ `schema_migrations(version, applied_at)`; numbered SQL files, each in its own transaction. **None of this exists yet** (§7.2). *(#20)*
 
 ### 11.3 Ollama call sites
 
@@ -1894,11 +1897,10 @@ If only one part of this section is checked, check this table. Every row is a ca
 
 ### 11.5 The MCP HTTP edge
 
-- [ ] `Route("/mcp", methods=["POST"])` → **405 on GET**, with an `Allow` header. *(#13, #20)*
+- [ ] *(loopback-HTTP-entry-point only)* `Route("/mcp", methods=["POST"])` → **405 on GET**, with an `Allow` header. *(#13, #20)*
 - [ ] Unmatched paths → **immediate 404**. Never hang. *(#13)*
-- [ ] `Host` allowlist: FQDN, **short name**, tailnet **IPv4 and IPv6**, **`localhost` and `127.0.0.1`**, plus the `*.tailc0e3c3.ts.net` **suffix** pattern (the SDK's wildcards are port-only → ~20-line subclass). *(#13, #15, #20)*
 - [ ] **Allow an absent `Origin`; reject a present-but-unallowlisted one.** *(#13)*
-- [ ] **Legible 403** naming the received `Host` and the allowed set — the SDK returns 421. *(#13, #20)*
+- [ ] *(loopback-HTTP-entry-point only)* **Legible 403** naming the received `Host` and the allowed set — the SDK returns 421. *(#13, #20)*
 - [ ] `json_response=True`. **No server-initiated SSE, ever.** *(#13, #20)*
 - [ ] ⚠ **Stateful sessions**, and ⚠ **`mcp>=1.28,<2`** — the second is what makes the first sufficient. *(#20, #34)*
 - [ ] **Generate `uv.lock`** before the first `make deploy` — `uv sync --frozen` fails without it (§7.1, §8.8). *(#34)*
@@ -1943,9 +1945,8 @@ If only one part of this section is checked, check this table. Every row is a ca
 ### 11.8 systemd, OS and logging
 
 - [ ] Seven units; `tome` system user with **no `render`/`video` groups**. *(#15, #19)*
-- [ ] `tome-mcp`: hard on Postgres, **soft on Ollama**. `tome-enrich`: hard on both. **No `tailscaled` dependency.** *(#15)*
-- [ ] `IPAddressDeny=any` + `IPAddressAllow=100.64.0.0/10 fd7a:115c:a1e0::/48 localhost`; bind `0.0.0.0`. *(#15)*
-- [ ] Timer: monotonic, ~15 min, `OnBootSec≈5min`, **no `Persistent=`**, no `Restart=` on the runner. *(#15)*
+- [ ] `tome-mcp`: hard on Postgres, **soft on Ollama**. `tome-enrich`: hard on both. *(#15)*
+- [ ] Timer: `StartInterval=900` **without** `RunAtLoad` — the closest launchd equivalent to the old ~15 min monotonic timer with no `Persistent=`; it delays first firing by one interval (15 min, not the ~5 min `OnBootSec` used to give), a coarser approximation of the original intent. No `Restart=` on the runner. *(#15)*
 - [ ] Ollama drop-in: shorten the global keep-alive; **`OLLAMA_GPU_OVERHEAD` ~1.5 GiB**; drop the global `OLLAMA_CONTEXT_LENGTH`; `NUM_PARALLEL=1`. *(#15)*
 - [ ] ⚠ **`OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0` — pinned together, in the *Tome* drop-in.** They are **coupled**: `q8_0` with flash attention off makes `bge-m3` fail to load at all (`V cache quantization requires flash_attn`, a hard 500 on `/api/embed`), so capture breaks outright. Flash attention is **not** a no-op on this encoder (+19.3% / +28.7% at 1,839 / 6,144 tokens). On the Mac both arrive from Homebrew's LaunchAgent by default rather than from a decision — pin them. *(#15, §7.7; `research/gate-b-overshoot.md` §3)*
 - [ ] ⚠ **`OLLAMA_HOST=127.0.0.1:11434` in the *Tome* drop-in.** It is already the bind here, but only via the pre-existing `90-pi-local-rocm.conf`, which Tome does not own — and `0.0.0.0:11434` is LAN-reachable given the firewalld zone. **`ollama.service` gets no `IPAddressDeny=`** — deliberately, §7.7. *(#28)*
@@ -1955,7 +1956,7 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] ⚠ `chattr +C` on the PG data dir before `initdb`. *(#15)*
 - [ ] `SyslogIdentifier=` per unit. `/var/lib/tome/backups/` mode **0700**, owned by `tome`. *(#15, #19)*
 - [ ] **Invariant C**, plus `log_exception()` and ⚠ `configure_logging()`, plus the one-time third-party logger audit. *(#26)*
-- [ ] RTC: `RealTimeIsUniversal=1` on the Windows side, then `timedatectl set-local-rtc 0`. *(#15)*
+- [ ] ⚠ RTC: the Windows-registry / `timedatectl set-local-rtc 0` fix does not apply — no dual boot, no Windows, no `timedatectl` on macOS. Dropped, not replaced (§7.9). *(#15)*
 - [ ] Runbook note: the working form is `journalctl --namespace=tome -u …`. *(#26)*
 
 ### 11.9 Deploy, backup and runbook
@@ -2066,8 +2067,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **Up to 15 minutes where `search_entities` returns nothing for a retracted subject** | The timer is the retry mechanism; an immediate run is a coin flip against the advisory lock. `entries_requeued` tells the caller a rebuild is pending. | 8.3 |
 | **Re-derivability holds only up to summary wording** | Merge is order-dependent. Same Entity set, same `source_entry_ids`, prose may differ. | 3.4 |
 | **`100.64.0.0/10` is CGNAT, so this is a source-address filter, not an interface filter** | A LAN numbered inside 100.64/10 would pass. The port also remains bound broadly, so `ss -ltn` looks more open than policy allows. | 7.4 |
-| **The `Host` allowlist is coupled to how the box is addressed** | A device or tailnet rename is a rare, delayed breakage — made self-diagnosing by the legible 403. | 9.3 |
-| **`mcp-remote` is an untended dependency, pinned to a dead repo** | ~80% of it is OAuth machinery that never executes here. Its live risks: swallowed transport errors on server send (a request **hangs**), and an unconditional OAuth discovery probe that **crashes on Node 26**. Target Node 20/22 LTS. | 9.2 |
+| **The `Host` allowlist is coupled to how the box is addressed** *(loopback-HTTP-entry-point only)* | A device rename is a rare, delayed breakage — made self-diagnosing by the legible 403. | 9.3 |
 | **The server can never volunteer anything without a retrofit** | No server-initiated SSE. The door is closed knowingly. | 7.5 |
 | **"Search degraded, capture fine" is reachable without noticing** | The deliberate consequence of `tome-mcp` being soft on Ollama — which is what protects capture. `warnings` is what announces it. | 7.3 |
 | **The `warnings` channel is dead if the MCP server fails to start** | Surfaces only as a Claude connection error: obvious that something is wrong, not *what*. Desktop notifications are the deferred fix. | 10.3 |
@@ -2121,7 +2121,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 >
 > Each is stated at its use site with a pointer back here, so the caveat travels with the number.
 >
-> **Two of the original four are gone, and this is the section working as designed rather than failing.** The **global confidence threshold (0.7)** and the **type-stickiness override margin (+0.20)** were both measured on first contact and both found not merely mis-set but unsalvageable — 0 of ~2,350 entities below 0.7, and a required margin wider than the model's entire 0.14–0.15 confidence range. Deleted rather than re-guessed, with the reasoning kept at §5.7 and §3.4. A guess that gets measured and removed is the whole point of stating it as a guess. *(#35)*
+> **Two of the original four are gone, and two more were added later — the table below is a different four, and this is the section working as designed rather than failing.** The **global confidence threshold (0.7)** and the **type-stickiness override margin (+0.20)** were both measured on first contact and both found not merely mis-set but unsalvageable — 0 of ~2,350 entities below 0.7, and a required margin wider than the model's entire 0.14–0.15 confidence range. Deleted rather than re-guessed, with the reasoning kept at §5.7 and §3.4. In their place, the **fallback-judgement pairing interval** (#33) and the **`source` length bound** (#34) were later stated the same way, as guesses rather than requirements — bringing the count back to four, but not the same four. A guess that gets measured and removed is the whole point of stating it as a guess. *(#35)*
 
 | Value | Starting point | Reasoning — such as it is | Tune when |
 |---|---|---|---|
@@ -2130,7 +2130,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **ANN tripwire threshold** (§6.2) | **`search_entities` p95 > 150 ms, over a trailing 7 days, minimum 50 logged queries** | The companion trigger is ~30–50k rows, whichever comes first. §6.2's honest magnitudes put exact scan in the ~10–20 ms range, so 150 ms is ~10× headroom — it will not false-fire, but it fires *before* anything is perceptible inside an LLM turn, which is the point: it should be a warning, not a symptom. The **window and minimum sample** are the load-bearing part — without them a cold-cache outlier or a quiet week fires it. | It fires, or the row trigger arrives first and latency is still flat — in which case raise it rather than removing it. |
 | **`source` length bound** (§9.4) | **64 characters**, after whitespace trimming; over it `source` is `NULL` plus one `WARNING` | `clientInfo.name` carries no constraint at all on the pinned SDK — no length bound, no pattern, `extra: "allow"` — and 100,000 characters is served (probed). Real values are 10–11 chars (`claude-code`, `claude-ai`), so 64 cannot false-reject a genuine name while still refusing a string that is obviously not one. **Never truncate**: a clipped name reads as a real client name forever in an immutable row. Listed here rather than only in §9.4 so all four guesses tune from one place. | A real client ever reports a name longer than this, which would mean the vendor changed what the field carries. |
 
-**None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. *(The closest call used to be the confidence threshold, because it changed what extraction recorded. With it deleted, all three remaining values are read-side or write-bound only, so the question no longer arises.)* §7.8's fingerprint reads named keys rather than hashing the file, precisely so a tuning edit does not register as a rule change.
+**None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. *(The closest call used to be the confidence threshold, because it changed what extraction recorded. With it deleted, all four current values — the summary length bound, the fallback-judgement pairing interval, the ANN tripwire threshold, and the `source` length bound — are read-side or write-bound only, so the question no longer arises.)* §7.8's fingerprint reads named keys rather than hashing the file, precisely so a tuning edit does not register as a rule change.
 
 ---
 
@@ -2150,7 +2150,7 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 ### Two smaller notes, **not ticketed** — recorded so they are not rediscovered
 
 - **#12's DB-level enforcement sentence** reads *"`REVOKE UPDATE/DELETE` on `entities` … and route mutations through a function that writes the event."* The invariant restated across #18/#19/#23/#26 is unambiguously about **`enrichment_events` being append-only**, so §3.5 states it that way with the routing as its mechanism. Worth a glance from whoever writes the grants.
-- **Numbers no ticket ever named** — the `entities.summary` length bound, the confidence threshold, the ANN tripwire's p95 value, and (found while filling the others in) the type-stickiness override margin, which §3.3 called "substantially higher" without ever saying how much. **All four were given starting values in §13.4**, explicitly guesses rather than requirements, so that a builder tunes a stated number instead of inventing one silently. *(Two of the four — the confidence threshold and the stickiness margin — were then measured and deleted rather than tuned; #35. That is the mechanism working, and it is why they were labelled guesses.)*
+- **Numbers no ticket ever named** — the `entities.summary` length bound, the confidence threshold, the ANN tripwire's p95 value, and (found while filling the others in) the type-stickiness override margin, which §3.3 called "substantially higher" without ever saying how much. **All four were given starting values in §13.4**, explicitly guesses rather than requirements, so that a builder tunes a stated number instead of inventing one silently. *(Two of the four — the confidence threshold and the stickiness margin — were then measured and deleted rather than tuned; #35. That is the mechanism working, and it is why they were labelled guesses. Two more guesses — the fallback-judgement pairing interval, #33, and the `source` length bound, #34 — were added the same way afterward, so §13.4 currently lists four values again: two survivors of the original four plus these two later ones.)*
 
 ---
 
@@ -2159,17 +2159,18 @@ Four things came up in consolidation that no ticket settled. **None was a contra
 | § | Tickets |
 |---|---|
 | 1 Overview & scope | map, #2, #3, #4, #5, #6, #7, #8, #15, #17, #18, #19, #20, #22, #24, #26 |
-| 2 Domain model | [CONTEXT.md](./CONTEXT.md), #10, #12, #14, #17 |
-| 3 Data model | #10, #11, #12, #14, #16, #17, #18, #19, #20, #23, #25 |
-| 4 Enrichment pipeline | #8, #12, #15, #16, #17, #18, #21, #24, #25 |
-| 5 MCP tool surface | #10, #11, #12, #14, #16, #17, #18, #19, #21, #25, #26 |
+| 2 Domain model | [CONTEXT.md](./CONTEXT.md), #10, #12, #14, #17, #35, #36 |
+| 3 Data model | #10, #11, #12, #14, #16, #17, #18, #19, #20, #23, #25, #33, #34, #35, #36 |
+| 4 Enrichment pipeline | #8, #12, #15, #16, #17, #18, #21, #24, #25, #36 |
+| 5 MCP tool surface | #10, #11, #12, #14, #16, #17, #18, #19, #21, #25, #26, #35, #36 |
 | 6 Search & retrieval | #3, #16, #17, #18, #22, #23 |
-| 7 Deployment & operations | #9, #13, #15, #17, #19, #20, #22, #24, #26 |
-| 8 Durability, retention & privacy | #12, #18, #19, #20, #23, #26 |
-| 9 Client setup | #5, #9, #13, #15 |
+| 7 Deployment & operations | #9, #13, #15, #17, #19, #20, #22, #24, #26, #33, #34 |
+| 8 Durability, retention & privacy | #12, #18, #19, #20, #23, #26, #34 |
+| 9 Client setup | #5, #9, #13, #15, #33, #34 |
 | 10 Out of scope & roadmap | map, #6, #13, #18, #19, #21, #22, #23, #25 |
 | 11 Build obligations | all of the above |
-| 12 Superseded decisions | #8, #9, #10, #11, #12, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26 |
-| 13 Limitations & unmeasured claims | #16, #18, #19, #22, #23, #24, #25 |
+| 12 Superseded decisions | #8, #9, #10, #11, #12, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #33, #34, #35 |
+| 13 Limitations & unmeasured claims | #16, #18, #19, #22, #23, #24, #25, #33, #34, #35, #36 |
+| 14 Surfaced while assembling | #28, #29, #30, #31, #33, #34, #35 |
 
 Research write-ups: [`research/local-llm-runtime-rocm.md`](./research/local-llm-runtime-rocm.md), [`research/mcp-remote-transport-tailscale.md`](./research/mcp-remote-transport-tailscale.md), [`research/embedding-model-short-english-retrieval.md`](./research/embedding-model-short-english-retrieval.md), [`research/oversize-enrichment-budget.md`](./research/oversize-enrichment-budget.md).

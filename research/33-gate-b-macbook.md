@@ -63,7 +63,7 @@
 **Runtime:** Ollama **0.32.4**, Homebrew CLI formula, running as the LaunchAgent `homebrew.mxcl.ollama` on `127.0.0.1:11434`.
 **Models:** `bge-m3:latest` (1.2 GB), `qwen3:14b` (9.3 GB).
 **Date:** 2026-07-26.
-**Comparator:** the Fedora box (RX 6900 XT), measured 2026-07-26, as recorded in issue #33 and the then-current handoff (`NEXT-STEPS.md`.
+**Comparator:** the Fedora box (RX 6900 XT), measured 2026-07-26, as recorded in issue #33 and the then-current handoff (`NEXT-STEPS.md`).
 
 ---
 
