@@ -708,3 +708,521 @@ Recorded so that nothing here is mistaken for a finding.
 **Tome's own measurements**
 
 - `PRD.md` §1.4, §1.5, §3.7, §4.1, §4.2, §4.4, §4.5, §4.10, §6.4, §6.5, §6.6, §7.7, §12.1, §12.2, §13.3, §13.4
+
+---
+
+# Follow-up: the opposite question — does a *smaller* enrichment model fit?
+
+*Added 2026-07-26, after the sections above. This is additive: §§1–18 stand except where §19.2 explicitly corrects them, and no verdict in §15 changes direction.*
+
+The brief asked whether a **larger** model now fits (§10). Nobody asked the reverse, and the premise checks out: **#8's justification for `qwen3:14b` is verbatim *"both fit comfortably within 16GB VRAM"* — a ceiling-fit argument, not a quality-requirement argument.** §12.1 records that #8's model choices were corrected three times, but 14b's *size* was only ever corrected in its footprint (9.3 GB download → 10 GB at `num_ctx: 16384`), never re-examined as a choice. #8's own recommendation adds only *"chosen over Qwen2.5:7b-instruct for extra headroom on extraction quality... and over 32B-class models to leave load-time and future-headroom margin"* — headroom framing on both sides, with no quality measurement anywhere. **There is no argument in the PRD that 14b is the minimum for extraction quality, and the constraint that produced it is gone on both targets.**
+
+---
+
+## 19.1 Lead answer: the ratio is invariant, so this is orthogonal to #32
+
+**The expectation is correct. Confirmed, quantitatively, and it is the cleanest result in this whole document.**
+
+The Mac-versus-Fedora per-entry ratio, computed independently at each rung of the ladder:
+
+| Enrichment model | Mac (MLX) ÷ Fedora | Mac (Ollama/GGUF) ÷ Fedora |
+|---|---|---|
+| `qwen3:14b` | **1.86×** | **2.22×** |
+| `qwen3:8b` | **1.83×** | **2.20×** |
+| `qwen3:4b` | **1.94×** | **2.21×** |
+
+**The ratio moves by 6 % across a 3.7× change in model size, and the residual is explained by one identifiable term (§19.5) that can be removed by matching KV quantisation.** A smaller model helps both platforms by the same factor. **It does not preferentially rescue the Mac.**
+
+So: **the model-size question should be decided on its own merits, on the Fedora box, regardless of what happens to #32.** It is not a macOS finding at all — it is a finding the macOS spike happened to surface, and it would be a mistake to make it contingent on the host decision.
+
+**But there is a second-order consequence that is not orthogonal, and it is large.** Because the *absolute* saving is a factor of ~1.8× per rung, and the platform penalty is ~1.9–2.2×, **one step down the ladder cancels the entire macOS throughput penalty**:
+
+| | Fedora + ROCm | Mac + MLX | Mac + Ollama/GGUF |
+|---|---|---|---|
+| `qwen3:14b` — 10k full run | **32.5 h** | 60.6 h | 72.2 h |
+| `qwen3:8b` — 10k full run | 18.3 h | **33.6 h** | 40.3 h |
+| `qwen3:4b` — 10k full run | 9.2 h | 17.8 h | 20.3 h |
+
+**`qwen3:8b` on the M4 Pro (33.6 h) is a dead heat with `qwen3:14b` on the Fedora desktop (32.5 h).** So if the ladder is climbable on quality — which §19.9's experiment exists to decide, and which nothing currently establishes — then **the throughput objection to the macOS target disappears**. That does not make the macOS target a good idea; every other finding in §§1–18 stands. It does mean the throughput argument, which §1 called the single most consequential finding, becomes **contingent on a decision that has never been made and can be tested in an afternoon.**
+
+That is a real change in the shape of the recommendation, and it is stated here rather than folded silently into §15.
+
+---
+
+## 19.2 A correction I owe: where the 18 s figure actually comes from
+
+**Before anything else, I have to correct §7.3 and §8 of this document.** Working the ladder required going back to `research/oversize-enrichment-budget.md` and issue #18 — sources I should have read in the first pass and did not. Two things came out of them.
+
+### 19.2.1 The ~18 s baseline was measured on a different model
+
+Issue #18 §5 states the figure and decomposes it (**M-Tome**):
+
+> **One extraction call ≈ 18 s steady state**, validating #15's ~20 s estimate: `wall 23.1 s, prompt 1,837 tok, generated 1,529 tok, load 5.1 s, prefill 0.9 s, decode 17.0 s`. Two corrections worth recording: **decode dominates, not prefill** (prefill ran at ~2,000 tok/s), so cost scales with *output* size — which the prompt controls; and #15's "a larger context makes prefill dominant" holds for its iGPU comparison but not for this workload.
+
+That decomposition is **1,837 tokens of prefill in 0.9 s (≈ 2,040 tok/s) and 1,529 tokens of decode in 17.0 s (≈ 90 tok/s)**. Ninety tokens per second on a 9.28 GB model would require **835 GB/s** of memory bandwidth on a card that has **512 GB/s** (**X** — physically impossible, and the check takes one multiplication).
+
+The explanation is stated outright in issue #24's own ticket body: *"**#18's ~1.5k figure was measured on `gpt-oss:20b` standing in for `qwen3:14b` (which was not pulled at the time)**."* The ~1.5k figure and the 18 s figure are the same measurement — `generated 1,529 tok`. And `gpt-oss:20b` is a **Mixture-of-Experts with roughly 3.6 B active parameters**, for which ~90 tok/s decode and ~2,000 tok/s prefill on this card are exactly right.
+
+**So `PRD.md` §1.5's "one extraction call is ~18 s", and therefore the ~5 h / ~25 h / ~50 h full-run figures, and therefore §3.7's 50 h-versus-6 min remedy asymmetry, were all computed on a stand-in model with roughly four times the throughput of the one actually specified.** #24 later measured the real `qwen3:14b` extensively — 42 s for a 4,525-token entry, 121–135 s for a clean 6,046-token entry — but nothing carried those numbers back into the ~18 s figure.
+
+**How wrong is it?** Less than that framing suggests, because #18's test entry also produced far more output than `qwen3:14b` does for an entry that size. Recomputed on `qwen3:14b` against #24's own measured output curve (§19.3):
+
+| Entry | Fedora + `qwen3:14b`, recomputed | §1.5's figure |
+|---|---|---|
+| 620 bge tokens, 4 entities (measured) | **11.7 s** | — |
+| 2,048 bge tokens (the capture cap), ~9 entities | **27.0 s** | — |
+| #18's own test entry's token counts (1,837 prompt / 1,529 generated) | **43.6 s** | 18 s |
+
+**Verdict on the number:** §1.5's ~18 s is **roughly right for small entries and roughly 1.5–2.4× low for larger ones** — the number survives better than the derivation that produced it. `PRD.md` §12.1 records that #8 *"was corrected three times"*; this is a fourth correction that was never made, and it belongs in §13.3 as *the cost model was measured on `gpt-oss:20b`, not on `qwen3:14b`*, which is a stronger and more specific statement than the row that is there.
+
+### 19.2.2 Consequently, §8's re-cost multiplier was too high
+
+§7.3 of this document attributed the 18 s to the 6,046-token entry in §4.4 and derived a **41 % prefill / 59 % decode** split. That attribution was wrong: none of the four runs of the 6,046-token entry took 18 s (they took 121, 236, 135 and 602 s). Rebuilt on #24's actual measurements (§19.3), the split for a real `qwen3:14b` entry is **12–30 % prefill**, not 41 %.
+
+Since prefill is the term with the large platform ratio (~4.3×) and decode the term with the small one (~1.4–1.6×), a smaller prefill share means a **smaller** overall penalty:
+
+| | §8's figure | **Corrected** |
+|---|---|---|
+| Per-entry penalty, Mac + MLX | 2.41× | **1.83–1.94×** |
+| Per-entry penalty, Mac + Ollama/GGUF | 2.65× | **2.20–2.22×** |
+| 10k full run, Mac + MLX, `qwen3:14b` | 121 h | **~61 h** (recomputed) or **~93 h** (if §1.5's 50 h is held as given and scaled by 1.86×) |
+| 10k full run, Mac + GGUF, `qwen3:14b` | 128 h | **~72 h** (recomputed) or **~111 h** (§1.5 scaled by 2.22×) |
+
+**The direction of §1 and §8 is unchanged and every verdict in §15 stands.** Capacity still dissolves; throughput is still the binding constraint; prefill is still the term that hurts. But the magnitude is **~1.9–2.2×, not ~2.6×**, and the multi-day full run is **~3–4 days, not ~5.5**. §8's numbers should be read through this correction. §19.3 gives the rebuilt rate model, which now reproduces **seven** independent measurements from #24 rather than four.
+
+**A note on how this happened, because it is the point of the measured/derived discipline.** §8's error was not in the arithmetic; it was in the anchor. It took one PRD sentence (*"33× the 18 s baseline"*) as evidence that the 18 s described that entry, when it was a cross-reference to a different ticket's measurement of a different model. Every derived number downstream inherited it. **The fix came from reading the committed measurement notes rather than the PRD's summary of them** — which is a general lesson about where the evidence lives in this repository.
+
+---
+
+## 19.3 The rate model, rebuilt on #24's measurements
+
+Everything below rests on three constants derived from `research/oversize-enrichment-budget.md` (**M-Tome**, Ollama 0.32.1, `qwen3:14b` Q4_K_M, RX 6900 XT, `num_ctx: 16384`, `temperature: 0`, thinking disabled, `q8_0` KV):
+
+**(1) Decode: effective memory bandwidth ≈ 350 GB/s.**
+The four same-entry runaway runs vary only in output length against a fixed 6,661-token prefill, which isolates decode exactly. Modelling step time as `(W + k·position)/B` with `W = 9.28 GB` and `k = 87,040 B/token` (`q8_0` KV, 40 layers × 8 KV heads × 128 head_dim, **D** from `Qwen/Qwen3-14B/config.json`):
+
+| Run (**M-Tome**) | Output tok | Measured wall | Model at B = 350 GB/s |
+|---|---|---|---|
+| pass2 rep0 | 4,027 | 121 s | **122 s** |
+| pass2 rep1 | 7,628 | 236 s | 224 s |
+| retry rep0 | 4,289 | 135 s | 129 s |
+| retry rep1 | 17,957 | 602 s | 545 s (+context-shift re-prefill, unmodelled) |
+
+350 GB/s is **68 % of the card's 512 GB/s** — and independently, llama.cpp's ROCm thread measures the RX 6900 XT at 88.49 tok/s on a 3.83 GB model, i.e. **339 GB/s (66 %)** (**M-3P**). Two routes, 3 % apart.
+
+**(2) Prefill ≈ 900 tok/s for `qwen3:14b` Q4_K_M, i.e. ~24.8 TFLOPS achieved.**
+Same llama-bench row gives `pp512 = 1889.84 t/s` on llama-7B Q4_0 ≈ **24.8 TFLOPS achieved** (**X**: 1889.84 × 13.13 GFLOP/token). Applied to Qwen3-14B's 27.1 GFLOP/token at a ~1,800-token prompt, that is **914 tok/s** — which is what §7.3 assumed from a different route.
+
+**(3) Output ≈ 96 tokens per extracted Entity** (**M-Tome**, stated in #24 and corroborated at 95.9, 99.7, 84 and 113 across four runs).
+
+**Validation — the model now reproduces seven measurements it was not fitted to.** The decisive one is the split counterfactual, which #24 measured at four granularities:
+
+| §4.10 row | Prefill/call | Output/call | Model | **Measured** |
+|---|---|---|---|---|
+| 1 entry (4,525 bge tok) | 5,314 | 1,511 | 46.7 s | **42 s** |
+| 4 entries (~1,130 bge) | 2,239 | 890 | 26.5 s | **23.0 s** |
+| 10 entries (~450 bge) | 1,623 | 363 | 11.7 s | **9.3 s** |
+| 40 entries (~113 bge) | 1,317 (**102 after prefix cache**) | 130 | 3.6 s | **3.3 s** |
+
+Within 8–13 % everywhere. **And the 40-entry row only fits if the 1,215-token extraction prompt is being served from the KV prefix cache** — at a cold 1,317-token prefill the model predicts 5.0 s against a measured 3.3 s. §8.3 declined to credit prefix caching for want of evidence; **this is the evidence, and it is in the repository.** The prompt prefix is free after the first entry of a run, worth ~1.3 s/entry on Fedora and ~5.5 s/entry on the M4 Pro.
+
+**Derived platform constants** (all **X**, from §8.1's measured anchors):
+
+| | Achieved prefill compute | Achieved decode bandwidth |
+|---|---|---|
+| Fedora, RX 6900 XT, Ollama/ROCm | **24.8 TFLOPS** | **350 GB/s** |
+| Mac, M4 Pro 20-core, MLX | **6.06 TFLOPS** | **225 GB/s** |
+| Mac, M4 Pro 20-core, Ollama/GGUF-Metal | **5.77 TFLOPS** | **194 GB/s** |
+| Ratio, Fedora ÷ Mac | **4.09× (MLX) / 4.30× (GGUF)** | **1.56× (MLX) / 1.80× (GGUF)** |
+
+---
+
+## 19.4 The ladder, re-costed
+
+**Model facts** (**D** — Ollama registry manifests and HuggingFace file sizes, both queried 2026-07-26; architecture from each model's `config.json`):
+
+| Model | Ollama Q4_K_M | `mlx-community` 4-bit | Non-embedding params | Layers | `n_heads × head_dim` | KV bytes/token (f16 / `q8_0`) |
+|---|---|---|---|---|---|---|
+| `qwen3:0.6b` | 0.52 GB | — | ~0.44 B | 28 | 2048 | 114,688 / 60,928 |
+| `qwen3:1.7b` | 1.36 GB | 0.97 GB | 1.4 B | 28 | 2048 | 114,688 / 60,928 |
+| **`qwen3:4b`** | **2.50 GB** | **2.26 GB** | **3.6 B** | 36 | 4096 | 147,456 / 78,336 |
+| **`qwen3:8b`** | **5.23 GB** | **4.61 GB** | **6.95 B** | 36 | 4096 | 147,456 / 78,336 |
+| **`qwen3:14b`** (incumbent) | **9.28 GB** | **8.31 GB** | **13.2 B** | 40 | 5120 | 163,840 / 87,040 |
+| `qwen3:32b` | 20.2 GB | — | ~30 B | 64 | 8192 | 262,144 / 139,264 |
+| `qwen3:30b-a3b` (MoE) | 18.56 GB | — | ~3 B active | 48 | 4096 | 196,608 / 104,448 |
+| `gpt-oss:20b` (MoE) | 13.79 GB | — | ~3.6 B active | — | — | — |
+
+Note `qwen3:4b` and `qwen3:8b` have **identical KV geometry** (36 layers, 8 KV heads, 128 head_dim), so their context cost is the same and only their weights differ. Note also that the 14b's Ollama figure of **9.28 GB** is #1.4's "9.3 GB download", now confirmed from the registry manifest.
+
+### 19.4.1 Reference workload A — a typical entry
+
+620 bge tokens → `prompt_eval` **1,762**, output **363 tokens**, **4 Entities**. All three numbers are measured (**M-Tome**, #24 pass 2). This is the closest thing in the repository to a representative Tome entry.
+
+| Path | Model | Prefill | Decode | **Per entry** | **10k full run** | Mac ÷ Fedora |
+|---|---|---|---|---|---|---|
+| **Fedora + ROCm** | `14b` | 1.9 s | 9.8 s | **11.7 s** | **32.5 h** | — |
+| | `8b` | 1.0 s | 5.6 s | **6.6 s** | **18.3 h** | — |
+| | `4b` | 0.5 s | 2.8 s | **3.3 s** | **9.2 h** | — |
+| **Mac + MLX (20-core)** | `14b` | 7.9 s | 13.9 s | **21.8 s** | **60.6 h** | 1.86× |
+| | `8b` | 4.2 s | 7.9 s | **12.1 s** | **33.6 h** | 1.83× |
+| | `4b` | 2.2 s | 4.1 s | **6.4 s** | **17.8 h** | 1.94× |
+| **Mac + Ollama/GGUF (20-core)** | `14b` | 8.3 s | 17.7 s | **26.0 s** | **72.2 h** | 2.22× |
+| | `8b` | 4.4 s | 10.1 s | **14.5 s** | **40.3 h** | 2.20× |
+| | `4b` | 2.4 s | 5.0 s | **7.3 s** | **20.3 h** | 2.21× |
+
+### 19.4.2 Reference workload B — an entry at the capture ceiling
+
+2,048 bge tokens → `prompt_eval` **3,070**, output **~860 tokens**, ~9 Entities (interpolated from #24's 2,071-token row, which measured `prompt_eval` 3,093 and output 721/1,000 across two reps).
+
+| Path | Model | Prefill | Decode | **Per entry** | **10k full run** | Mac ÷ Fedora |
+|---|---|---|---|---|---|---|
+| **Fedora + ROCm** | `14b` | 3.4 s | 23.6 s | **27.0 s** | **75.0 h** | — |
+| | `8b` | 1.8 s | 13.5 s | **15.4 s** | **42.7 h** | — |
+| | `4b` | 1.0 s | 6.8 s | **7.8 s** | **21.7 h** | — |
+| **Mac + MLX (20-core)** | `14b` | 14.0 s | 34.0 s | **48.0 s** | **133 h** | 1.78× |
+| | `8b` | 7.5 s | 19.6 s | **27.1 s** | **75.3 h** | 1.76× |
+| | `4b` | 4.1 s | 10.6 s | **14.7 s** | **40.8 h** | 1.88× |
+| **Mac + Ollama/GGUF (20-core)** | `14b` | 14.7 s | 42.4 s | **57.1 s** | **159 h** | 2.11× |
+| | `8b` | 7.9 s | 24.4 s | **32.2 s** | **89.4 h** | 2.09× |
+| | `4b` | 4.3 s | 12.3 s | **16.6 s** | **46.1 h** | 2.13× |
+
+**Read across both tables and the pattern is identical: the ratio column is flat, and one rung down the ladder is worth more than the entire platform difference.**
+
+### 19.4.3 Two rows the tables do not contain, and why
+
+- **`qwen3:1.7b` and `qwen3:0.6b`** are omitted from the cost tables not because they would not be fast — the 1.7b would be roughly 8× the 14b on prefill and 6× on decode — but because the published evidence puts a cliff below ~2 B on structured-output compliance (§19.7), and running the recall probe there is cheap enough that guessing is pointless. **They belong in the experiment, not in a projection.**
+- **`qwen3:32b`** is priced in §10 and remains a bad trade on the Mac. On the Fedora box it does not fit alongside the pinned embedder at all (20.2 GB against 15.98 GiB), so it is not a live option on either target for different reasons.
+
+---
+
+## 19.5 Why the ratio is invariant — the arithmetic, and the three terms that spoil it
+
+The invariance is not a coincidence and it is worth writing down, because it tells you exactly when it would stop holding.
+
+Let `N` be non-embedding parameter count, `T` prompt tokens, `O` output tokens, `C` the platform's achieved prefill compute, `B` its achieved decode bandwidth, `W(N)` the weight bytes and `K` the KV bytes.
+
+```
+prefill_time = (2·N·T + 2·L·T²·d_q) / C
+decode_time  = O · (W(N) + K) / B
+
+Mac ÷ Fedora  =  w_p · (C_fed/C_mac)  +  w_d · (B_fed/B_mac)
+```
+
+`C_fed/C_mac` and `B_fed/B_mac` are **pure hardware ratios with no `N` in them.** And the weights `w_p`, `w_d` are also `N`-free to first order, because `prefill_time ∝ N` and `decode_time ∝ W(N) ∝ N` — both terms shrink by the same factor, so their *proportions* do not move. **That is the whole proof, and it is why the ratio column in §19.4 is flat.**
+
+Three terms spoil it at second order. All three are small, two are identifiable, and one is fixable:
+
+**(a) The KV cache does not scale with `N` — and it is quantised differently on the two platforms.** As the model shrinks, `K` becomes a larger fraction of `(W + K)`. That would be neutral, except that §7.7 specifies `q8_0` KV on Fedora (forced by 16 GB) while §6 concludes the Mac should use f16 (because capacity is free). **f16 KV is 1.9× the bytes of `q8_0`**, so the Mac carries a heavier fixed term, and the penalty grows as the model shrinks:
+
+| | 14b | 8b | 4b |
+|---|---|---|---|
+| Decode-time ratio, Mac f16 KV ÷ Fedora `q8_0` KV | 1.42× | 1.42× | **1.50×** |
+| Decode-time ratio, **both on `q8_0`** | 1.39× | 1.39× | **1.41×** |
+
+**So the entire measurable deviation is removable by keeping `q8_0` KV on the Mac.** That is a concrete, actionable finding and it inverts §6's recommendation for small models: §6 said f16 is now the better choice because the constraint that forced `q8_0` has dissolved — true for the 14b, but **for a 4b the `q8_0` cache is worth ~5 % of throughput and costs nothing that matters.** Not a big number, but it is the one place where the platform and model questions genuinely interact, and it points the opposite way to intuition.
+
+**(b) Attention FLOPs scale with `T²·d_q`, not with `N`.** Attention's share of prefill rises as models shrink — at `T = 6,661` it is 9.4 % for the 14b, 12.4 % for the 8b and 21 % for the 4b (**X**). This is platform-neutral *unless* Metal's flash-attention kernels have a different relative efficiency to ROCm's, which cannot be established from any source I found. **It is measurable in one `llama-bench` run at two prompt lengths** (§19.13).
+
+**(c) Fixed per-call overhead does not shrink with the model.** Tokenisation, HTTP, sampler setup, and scheduler bookkeeping are roughly constant. On a 4b at ~3 s/entry, a 200 ms fixed cost is ~7 % — versus ~2 % on the 14b. This *is* platform-dependent (Ollama is Go; oMLX is Python/FastAPI with an executor hop per batch, visible in `omlx/engine/embedding.py`), and it plausibly favours Ollama at the small end. Unmeasured, and it is why the 4b's ratio in §19.4 (1.94×) should be read as a floor rather than a point.
+
+**Net: the ratio drifts from 1.86× to 1.94× across 14b → 4b, ~4 %, of which ~5 percentage points is term (a) and removable.** The expectation holds. There is no size-dependent term large enough to make a smaller model a *macOS* remedy rather than a general one.
+
+---
+
+## 19.6 Should a non-`qwen3` candidate get a row?
+
+**Recommendation: no, not in the first experiment — with one exception that should be measured for information rather than adoption.**
+
+The reasoning against a family change, weighed as the brief directs:
+
+1. **§4.9's prompt is tuned to `qwen3`'s behaviour, and the tuning is measured, not incidental.** *"Thinking mode disabled — otherwise `qwen3:14b` returns a reasoning preamble instead of clean JSON"* is a `qwen3` chat-template mechanism. The case-preservation carve-out exists because `qwen3` produced `roc-m` from `ROCm`. The no-concrete-example-keys rule exists because `qwen3` fabricated Commitments from prompt examples in **8 of 12 responses**. **Each of those is a `qwen3`-shaped defect with a `qwen3`-shaped mitigation**, and a family change invalidates all three mitigations simultaneously while offering no reason to think the new family's defects would be the same ones. A size change *within* `qwen3` keeps the chat template, the tokenizer (and therefore §4.4's measured 0.906 ratio), and the whole prompt.
+2. **§10.4's free independent judge, examined precisely — and it survives either way.** §10.4's independence claim is narrower than it first reads: *"the judge is genuinely independent of the system under test, since **what is evaluated is the embedding model**."* The independence is `qwen3:14b`-judge versus `bge-m3`-embedder. **Changing the enrichment model — to any size or any family — does not touch that**, because the judge is an on-demand operator act, not a resident service, and can remain `qwen3:14b` regardless. So §10.4 is *not* an argument against a family change. It becomes one only if a judged set were ever pointed at **extraction** rather than retrieval, where `qwen3:14b` grading `qwen3:4b`'s output is same-family circularity. §19.9's experiment grades against a hand-built answer key rather than an LLM judge, so it is immune — and that immunity should be preserved deliberately.
+3. **The tokenizer ratio is a committed constant.** §4.4's pre-flight assertion hard-codes `entry_tokens × 0.906`, measured across five sizes as the `qwen3`-to-`bge-m3` ratio. A family change makes it wrong, silently, in a direction that could be either safe or unsafe depending on the tokenizer. A size change within `qwen3` leaves it exact.
+
+**The one exception worth measuring: `gpt-oss:20b`.** It deserves a row not as a candidate but because it is **the model the ~18 s figure was actually measured on** (§19.2), it is already on the machine, and it is a ~3.6 B-active MoE — meaning it delivers roughly 14 B-class capability at roughly 4 B-class throughput. It is 13.79 GB, which does **not** co-reside with the pinned embedder inside 15.98 GiB on Fedora but fits trivially in 48 GB. **That is a second instance of the §19.11 asymmetry: an MoE enrichment model is a Mac-only option.** It should be run through §19.9's probe as a reference arm, because it costs one extra afternoon and it is the only datapoint that would tell you whether the sparse-MoE direction is worth a family change later.
+
+`qwen3:30b-a3b` (18.56 GB, ~3 B active) is the same idea inside the `qwen3` family and would keep the chat template and tokenizer — arguably the most interesting single row in the whole ladder, and also Mac-only. Worth one arm.
+
+---
+
+## 19.7 Published evidence on structured extraction by model size
+
+Two usable sources exist. Both matter, and **both are silent on the dimension that actually decides this** — which is itself the finding.
+
+### 19.7.1 LLMStructBench (arXiv 2602.14743, February 2026) — the closest published analogue
+
+Structured JSON extraction from natural language against predefined schemas, 995 test cases across five scenarios, **evaluated via the Ollama API with free generation (no grammar-constrained decoding)** — i.e. the same deployment shape as Tome. Metrics: `F1_micro` (0.25 × key F1 + 0.75 × value F1, with fuzzy value matching) and `DOC_micro` (share of *completely correct* generations, tempered by outright failures). Composite = mean of the two. **M-3P**, whole Qwen3 ladder:
+
+| Model | `F1_micro` | `DOC_micro` | Composite |
+|---|---|---|---|
+| Qwen3-0.6B | 0.92 | **0.30** | 0.61 |
+| Qwen3-1.7B | 0.94 | 0.40 | 0.67 |
+| **Qwen3-4B** | 0.93 | **0.37** | **0.65** |
+| **Qwen3-8B** | 0.93 | **0.36** | **0.65** |
+| **Qwen3-14B** | **0.95** | **0.44** | **0.69** |
+| Qwen3-32B | 0.94 | 0.39 | 0.67 |
+
+Four things fall out, and they are more encouraging than the coordinator's framing feared:
+
+- **The 14B is the best in its family**, which retroactively justifies the incumbent on a dimension #8 never argued. But it beats the 32B, so this is **not a scaling curve** — the paper says so explicitly: *"no strict monotonic relationship"* between parameter count and score.
+- **The 14b → 8b/4b step costs 0.02 on `F1_micro` and 0.07–0.08 on `DOC_micro`** (a 16–18 % relative drop in fully-correct-generation rate), for a **1.8–3.6× speedup**. That is the trade, quantified, on the closest published proxy.
+- **4B and 8B are indistinguishable from each other** (0.65 composite both). If the ladder is climbed at all, **there is no reason to stop at 8b** — the evidence says the 8b buys nothing over the 4b on this task, at 2× the cost. That is a genuinely useful and counter-intuitive result.
+- **Structural conformance is more prompt-sensitive than size-sensitive.** The paper's own summary: *"Structural validity is more sensitive to model-prompt misalignment than to scale, whereas value accuracy scales more predictably."* Value accuracy moves only **3.3 percentage points across a 23× parameter range**. This is the single most important sentence for §19.8: **the lever is the prompt, not the parameter count** — which is good news for the ladder and bad news for the assumption that the existing prompt transfers unchanged.
+
+### 19.7.2 IFStruct (Liquid AI, 2026-06-30) — format compliance in isolation
+
+Measures *"the ability to follow instructions for output format in isolation, without conflating the signal with generative quality, data extraction ability, or reasoning ability."* Binary per-sample scoring: a sample passes only if **every** structural constraint holds (format, required fields, types, enums, numeric bounds, item counts). **M-3P**:
+
+| Model | IFStruct |
+|---|---|
+| **Qwen3-8B** | **79.75 %** |
+| Qwen3.5-4B | 36.25 % |
+| Qwen3.5-2B | 33.15 % |
+| Qwen3.5-0.8B | 15.50 % |
+
+**Read this carefully: only the first row is Qwen3.** The other three are Qwen3.5, a different generation, and cannot be compared to the 8B row. What the Qwen3.5 sub-ladder does give is a **cliff below ~2 B** (36 % → 33 % → 15 %), which is direct evidence for excluding `qwen3:0.6b` and treating `qwen3:1.7b` as the boundary case. It gives nothing about 14b versus 8b versus 4b.
+
+### 19.7.3 The gap, which is the whole point
+
+**Both benchmarks measure conformance to a schema whose field set is given. Neither measures how many items a model should have emitted.**
+
+LLMStructBench's task is *"extract structured JSON following predefined schemas"* — the number of objects is determined by the input, and the metrics are keys, values and validity. IFStruct explicitly excludes *"data extraction ability"* by design. **Tome's measured defect is neither.** §4.10's finding is that seven decision-shaped subjects in one entry yield exactly **one** Decision — a *recall* failure, with perfectly valid JSON, perfectly correct types, and perfectly well-formed natural keys. **Both benchmarks would score that run near the top of their range.**
+
+So the honest position is:
+
+> **The published evidence covers exactly the dimension that is not Tome's problem, and is silent on exactly the dimension that is.**
+
+That is not a reason to ignore it — it usefully rules out the sub-2 B rungs and it says the 14b→4b conformance cost is small and non-monotonic. It is a reason why §19.9 is the most valuable thing in this follow-up, and why no amount of further reading substitutes for it.
+
+---
+
+## 19.8 What a size reduction does to §4.4's prompt budget and §4.9's rules
+
+This is where a smaller model is most likely to break something, and the evidence in §19.7.1 says so directly.
+
+**§4.9's prompt is not one instruction. It is at least eleven, in 1,215 tokens** (**M-Tome**): seven type definitions with `_Avoid_` lines verbatim; exactly-one-type-is-forced; `Fact` is explicitly not the tie-break; per-type natural-key specificity, biased over-specific but coarse for Person and Project; the `context` subordination rule verbatim; the name-precedence rule; no concrete example keys; a case-preservation carve-out; prefer-the-event's-own-date; thinking mode disabled; and the output contract with `entity_type` / `natural_key` / `summary` / `type_confidence` / `considered_types`.
+
+Three specific consequences:
+
+1. **The `_Avoid_` lines are the most size-fragile part, and they are load-bearing.** §4.9 justifies them as *"already written as decision rules; they resolve most ambiguity before it becomes a runtime problem"*, and §4.9 separately rules that *"`Fact` is explicitly not the tie-break"* because *"draining ambiguity into Fact turns it into the junk drawer that eats the schema's signal."* A model that follows the type definitions but drops the negative constraints will produce **valid JSON with the wrong types** — invisible to both published benchmarks, and precisely the junk-drawer failure §4.9 was written to prevent. **The type-distribution check in §19.9 is what catches it**, and a rise in `Fact` share is the specific signature to watch for.
+2. **The fabrication hazard is an instruction-following failure and it is measured at 8 of 12.** #24's prompt-example contamination — a Commitment claiming *"promised to send Alex the retrieval report by August 1st"* when the synthetic entry says the opposite — happened on the **14b**. It was mitigated by removing concrete example keys from the prompt, not by the model getting better at ignoring them. A smaller model is a priori more prone to the underlying failure. **§4.9's own framing is the reason this must be a hard-fail criterion, not a soft one: "A fabricated Commitment in a memory-keeper does not read as an error; it reads as a memory."**
+3. **§4.4's 3,000-token prompt budget becomes cheaper to spend and less useful to spend.** At a 4b, prefill costs ~3.6× less per token, so growing the prompt from 1,215 to 3,000 tokens costs ~0.55 s/entry on Fedora instead of ~2.0 s. But LLMStructBench's finding is that structural validity is *more* sensitive to prompt-model misalignment than to scale — so a longer, more elaborate prompt aimed at recovering a small model's instruction-following is exactly the move most likely to backfire, and it cannot be evaluated by reasoning. **The budget's headroom is not the constraint; the model's ability to use it is.** §4.4's assertion arithmetic is unaffected either way — it is tokenizer-side, and the tokenizer is identical across the `qwen3` ladder.
+
+**The consequence for §3.7's epoch, stated because it is easy to miss.** If the prompt has to be re-tuned for a smaller model — and §19.7.1 says it probably does — then **the enrichment-model tag and the extraction-prompt hash move in the same commit**. §3.7's itemised fingerprint handles this correctly (both are extraction-axis fields, both trigger a full run, one remedy), so nothing breaks. But it means **the two changes cannot be attributed separately after the fact**, and the ladder experiment must therefore hold the prompt **byte-identical** across arms (§19.9) so that model size is the only variable. Any prompt re-tuning is a *second* experiment, run after the first has established the unaided baseline.
+
+---
+
+## 19.9 The experiment: re-running #24's recall probe across the ladder
+
+**This converts "nobody can know until 90 days of usage" into roughly two hours of GPU time.** §13.1 is right that *retrieval* quality needs the query log and a judged set. It is not right that extraction recall does — **#24 already built the instrument**, and it has only ever been run at one model size.
+
+### 19.9.1 The corpus
+
+**#24's corpus: 80 hand-written synthetic subject blocks in the shape of personal memory entries, with invented names, of which 7 are decision-shaped and 1 is a Project.** Per #23 §9 no real memory content was used, and **the corpus itself was deliberately not committed — only the measurements were** (`research/oversize-enrichment-budget.md`, method note).
+
+**This is the experiment's first practical problem and it should be fixed rather than worked around.** The corpus is the instrument; without it nothing here is comparable to #24's baseline. Two options, in order of preference:
+
+1. **Recover #24's original corpus** from wherever the session that ran it left it, and **commit it** — it is synthetic by construction, so the public-repo constraint does not bite, and #24's own measurements are only reproducible if it exists. Committing it converts a one-off probe into a standing instrument, which is the difference between this being repeatable and being folklore.
+2. **Rebuild to the same specification** if it is gone — 80 blocks, ≥7 decision-shaped, 1 project spanning several blocks, a spread of Person / Event / Preference / Commitment / Fact subjects, invented names, ~50–120 bge-m3 tokens each. A rebuilt corpus **cannot be compared to #24's published numbers**, so the 14b arm must be re-run as the baseline. That is fine — it is one more arm.
+
+An **answer key** must accompany it: for each block, the intended Entity Type and a canonical natural key. #24 clearly had this implicitly (it knew the corpus held 7 decision-shaped blocks and 1 project). **Make it explicit and commit it with the corpus.** This is the one artifact that makes the probe a *score* rather than two lists — the same argument §10.4 makes for the judged set, at 1 % of the cost.
+
+### 19.9.2 What is held constant
+
+Everything except the model tag:
+
+- **The rendered prompt, byte-identical**, with its hash recorded per arm (§4.9 already computes it). No per-model prompt tuning in this experiment (§19.8).
+- `temperature: 0`, **thinking mode disabled**, `num_ctx: 16384`.
+- **`num_predict` bounded to 1,500** per §4.4. #24 ran with `-1`, which is what permitted the 602-second, 18k-token burn. Bounding does not affect the recall measurement and converts a degenerate run into a loud, cheap parse failure — which is itself one of the counted outcomes.
+- **One runtime.** Ollama + Q4_K_M for all arms. MLX 4-bit is a *different quantisation* (§8.1: ~4.5 bpw against Q4_K_M's ~4.85, and `mlx-lm`'s own benchmark table shows MMLU-Pro falling monotonically with bit-width). Mixing runtimes confounds model size with quantisation. **Runtime is a separate axis and should be a separate, later experiment** (§19.13).
+- The same corpus draws, in the same order, across every arm (paired design — see §19.9.5).
+
+### 19.9.3 The two regimes to run
+
+**Regime 1 — the granularity counterfactual. This is the primary endpoint**, because it is the regime Tome actually operates in: §12.2 holds capture at ~2048 tokens on quality grounds and §4.10 concludes that *"split and retry is not a consolation path, it is the better path."*
+
+Take 40 subjects and present them as **1 entry / 4 entries / 10 entries / 40 entries**, exactly as #24 did. The 14b baseline is **18 / 41 / 36 / 46 Entities** — i.e. **0.45 / 1.02 / 0.90 / 1.15 per subject**, with **46 distinct keys and no collisions** at the finest granularity and **zero parse failures at any granularity**.
+
+**Regime 2 — the Decision-count invariant.** Six single-entry sizes (620 / 1,119 / 2,071 / 4,036 / 6,046 / 7,620 bge tokens), counting Decisions against the expected ~1 / 1 / 2 / 4 / 6 / 7. The 14b scored **1, 1, 1, 1, 1, 1**.
+
+**A structural observation that should shape expectations before anyone runs this.** On Regime 2 — the dimension §13.1 cares most about — **the 14b is already at the floor.** It extracts one Decision at every size including the run that found 42 Entities. **A smaller model has essentially nothing left to lose there.** That is a real argument in the ladder's favour and it should be stated plainly rather than discovered afterwards: the incumbent is not currently buying Decision recall with its 1.8–3.6× cost. What it might be buying is everything in Regime 1, which is why Regime 1 is primary.
+
+### 19.9.4 What is counted — five outcomes per response
+
+| # | Outcome | Why | 14b baseline (**M-Tome**) |
+|---|---|---|---|
+| 1 | **Parse rate** — valid JSON conforming to the output contract | §4.4 measured 50 % failure (n=4) at 6,046 tokens; with `num_predict` bounded this becomes a loud failure, but its *rate* is the thing that changes with model size | **0 failures / 160 calls** in Regime 1; **2 of 4** at 6,046 tokens |
+| 2 | **Entities per subject**, by Entity Type | The primary endpoint. Type breakdown catches the junk-drawer failure §4.9 fears — **watch the `Fact` share specifically** | 1.15/subject at 40-entry granularity |
+| 3 | **Fabrication rate** — Entities whose natural key no block supports | §4.9's measured 8-of-12 hazard. **Hard fail.** | 0 with the corrected prompt; 8/12 with example keys present |
+| 4 | **Natural-key discipline** — collisions on keys that must not merge (Decision keys are date-scoped); case preservation (`ROCm`, not `roc-m`); event date preferred over `captured_at` | Three separately measured `qwen3` defects, each with a prompt mitigation whose effectiveness is model-dependent | 46 distinct keys / 46 Entities, no collisions |
+| 5 | **Type-assignment agreement and `type_confidence` distribution** against §13.4's 0.7 threshold | A model that bunches confidence high while being wrong more often **silently kills the Type-Suggestion channel** (§3.9, §5.7) without failing any other check | Not measured — establish it on the 14b arm |
+
+Outcome 5 has no baseline. **Establishing it is worth the experiment on its own**, because §13.4 records the 0.7 threshold as an unmeasured starting value and this is the first thing that would give it a distribution to sit against.
+
+### 19.9.5 Trials, pairing, and how to tell a regression from noise
+
+The measurement is a count of ~46 Entities from 40 subjects. Treated as a Poisson-ish count, a single run carries **SD ≈ √46 ≈ 6.8, i.e. ±15 %** — so **a single run per arm cannot distinguish anything worth acting on**, and #24's n=2 was sized to discover a coin flip, not to measure an effect.
+
+**Unpaired sizing.** To detect a drop from 1.15 to 0.95 Entities/subject (Δ = 8 Entities, a 17 % relative regression — about the smallest worth acting on) at 80 % power, α = 0.05 two-sided:
+
+```
+Δ ≥ 2.8 · √(2 · 46 / r)   ⇒   64 ≥ 7.84 · 92 / r   ⇒   r ≥ 12
+```
+
+**~12 replicates per arm.**
+
+**Paired sizing, which is what to actually do.** `temperature: 0` means repeating the *same* input is not an independent draw — though #24 measured genuine run-to-run variation at temperature 0 (2 clean / 2 garbage on identical input), so it is not deterministic either. **Get replicates from the corpus, not from the sampler: draw 8 different random 40-subject subsets from the 80 blocks, and run the identical 8 draws through every model arm.** This is strictly better in three ways:
+
+- It removes between-subset variance, which is the dominant term — pairing typically cuts the required `r` by half or more, so **8 paired draws is enough**.
+- It keeps the production configuration (`temperature: 0`) under test rather than perturbing it.
+- **It tests order- and composition-sensitivity for free**, which #24 flagged as real (*"composition swings unpredictably rather than degrading monotonically"*).
+
+Report the **paired per-draw difference against the 14b arm with a bootstrap 95 % CI** — the same statistical shape §10.4 specifies for model comparisons (*"two nDCG@10 numbers on the same key plus a paired bootstrap CI"*), so this is not a new methodology in the project, just an existing one applied earlier.
+
+**Cost.** 8 draws × 40 calls = 320 calls per arm in Regime 1, plus 8 × 6 = 48 calls in Regime 2. At §19.4's per-entry figures on the Fedora box:
+
+| Arm | Regime 1 | Regime 2 | **Total** |
+|---|---|---|---|
+| `qwen3:14b` | 320 × 3.3 s = 18 min | ~20 min | **~38 min** |
+| `qwen3:8b` | ~10 min | ~11 min | **~21 min** |
+| `qwen3:4b` | ~5 min | ~6 min | **~11 min** |
+| `qwen3:1.7b` | ~3 min | ~3 min | **~6 min** |
+| *(optional)* `gpt-oss:20b`, `qwen3:30b-a3b` | ~6 min each | ~7 min each | **~13 min each** |
+
+**Under two hours of GPU time for the whole ladder**, plus scoring. The scoring — matching emitted keys against the answer key — is the part that needs writing, and it is perhaps a hundred lines of Python against a committed answer key.
+
+### 19.9.6 Pass and fail, stated in advance
+
+Written down before the experiment so that the result cannot be argued about afterwards.
+
+**Hard fail — disqualifies a rung regardless of how fast it is:**
+- Any fabricated Entity (outcome 3) at a rate above the 14b's. §4.9: a fabricated Commitment *"reads as a memory."*
+- Parse-failure rate above 1 % in Regime 1, where the 14b measured 0 of 160.
+- Any collision on a natural key that must not merge (Decision keys).
+
+**Soft fail — a trade to be argued, not an automatic no:**
+- Entities-per-subject below the 14b's by more than the paired 95 % CI, in Regime 1.
+- A materially higher `Fact` share (outcome 2), which is §4.9's junk-drawer failure.
+- A `type_confidence` distribution that pushes the `ambiguous` rate near zero or floods it — §13.4 already names both as the tuning triggers for the 0.7 threshold.
+
+**Pass:** Regime 1 recall within the paired CI of the 14b, zero fabrications, zero parse failures, Decision count no worse than 1 at every size, and a type distribution not visibly shifted.
+
+**Explicitly allowed outcome: a smaller model scoring *higher*.** #24's own data shows entity yield is erratic rather than monotone (*"1.00 → 1.38 → 0.56/0.88 → 0.50/0.47 → 0.72 → 0.25"*), and LLMStructBench finds Qwen3 **non-monotonic in size** on document-level validity, with the 14B beating the 32B. **If a 4b clears the CI on the high side, that is a result, not noise**, and it should not be explained away.
+
+**What the experiment does not settle.** It measures extraction against a synthetic answer key. It does not measure whether the resulting Entity corpus retrieves better or worse — that is §10.4's judged set and it still needs 90 days. **The two are complementary and the split is exactly §4.10's own distinction**: this probe measures extraction recall; the judged set measures retrieval quality; under-extraction is invisible to the latter *by construction*. Running this probe does not shorten §13.1's timeline. It does mean the model-size decision no longer has to wait for it.
+
+---
+
+## 19.10 The risk, named in both directions
+
+**Against the ladder — the case that this is a direct trade against the one known defect.** §13.1's open question is **under-extraction**, and a smaller model is the obvious way to make under-extraction worse. §19.7.1 measures a 16–18 % relative drop in fully-correct-generation rate from 14b to 4b on the closest published proxy. §4.9's eleven-constraint prompt is exactly the shape of instruction-following that degrades first. And the failure mode is the worst possible one for this system: **plausible output, valid JSON, correct types, fewer memories** — undetectable by telemetry, undetectable by the user, and permanent in the sense that a full re-run under a better model is a ~30–150-hour operation.
+
+**For the ladder — the case that this is the cheapest available speedup.** §19.9.3's structural point stands: **on the Decision dimension the 14b is already at the floor (1 of 7 at every size), so it is not currently buying the thing under-extraction is about.** §19.7.1 says the conformance cost is 0.02 on value F1 and non-monotonic in size, and that **4B and 8B are indistinguishable** — so if the ladder is climbed at all, the 8b is a strictly worse choice than the 4b. And §4.10's own remedy for under-extraction is **finer capture granularity, not a bigger model** — 2.6× recall recovered by splitting, measured, with zero parse failures at any granularity. The 40-entry regime is where Tome actually lives, and it is the regime where the model is least stressed.
+
+**Both cases are arguments. Neither is evidence.** §19.9 is the evidence, it costs two hours, and the discipline this project already applies — #24 refused to grill the oversize question until Step 0 had been measured — says to run it before arguing further.
+
+**One asymmetry worth recording, because it decides sequencing.** Model size is a `tome.env` value and an epoch field: changing it is reversible, and the remedy for having chosen wrong is a full run. **But entries enriched under a worse model are not corrupted — raw is immutable and the entity layer is purely derived**, so the mistake is bounded by one full run's wall time and nothing is lost. That is a much softer failure than #24's capture-ceiling asymmetry (*"an entry captured at 8192 is immutable and permanent"*). **The ladder is a reversible decision; the only thing it can waste is time.** That argues for trying it early rather than deferring it behind 90 days.
+
+---
+
+## 19.11 The extract/merge split (item 6)
+
+**Contingent on §13.3's unverified claim, and — if true — it is the first thing in this entire spike that the Mac can do and the Fedora box cannot.**
+
+§13.3 records: *"A merging extraction may be **two** `qwen3` calls, not one (extract, then merge — resolution can only look up the key after extraction emits it). Recorded as unverified. **This is the cost model that the ~18 s/entry and ~50 h figures rest on.**"*
+
+If it is two calls, they are **different jobs with different demands**:
+
+| | Extract | Merge / summarise |
+|---|---|---|
+| Input | prompt (1,215) + entry + `context` | prompt fragment + one entry + **one** existing summary (§4.9: *"merge needs only one Entity's summary"*) |
+| Output | ~96 tokens × N Entities | one summary, bounded at 1,200 characters (§13.4) ≈ ~80 tokens |
+| Demands | recall, type assignment under `_Avoid_` rules, key formation, not fabricating | faithful compression under a length bound, name-precedence (§4.9) |
+| Failure if it degrades | **under-extraction — invisible** | summary wording drifts — §13.2 already accepts *"re-derivability holds only up to summary wording"* |
+
+**The asymmetry is the whole argument.** Extraction is the hard job, the expensive job, and the one whose failure is silent. Merge is short-input, short-output, and its failure mode is **already an accepted risk**. So the split is: **keep the large model for extraction, use a small model for merge.** The reverse would be exactly wrong.
+
+**Cost saved (X, Fedora, Reference A):** a merge call is ~1,700 prefill + ~80 output → **~4.1 s on the 14b, ~1.1 s on the 4b**. At 4 Entities/entry with perhaps half hitting an existing key, that is ~2 merges → **~6 s saved against a ~20 s two-call total, about 30 %.** Real, but an order of magnitude less than moving extraction itself down a rung (which saves ~45 %).
+
+**Residency — and here is the asymmetry:**
+
+| | Extract model | Merge model | Embedder + `num_batch` buffer | Desktop/OS | **Total** | Fits? |
+|---|---|---|---|---|---|---|
+| **Fedora, 15.98 GiB** | `14b` 9.28 | `4b` 2.50 | 0.94 + 0.28 | 1.16 | **~14.2 GB + two KV contexts ≈ 15.5 GB** | **At or past the ceiling.** §7.7 measured 13.12 GB for two models; a third leaves no margin and the `q8_0` KV requirement becomes non-negotiable |
+| **Mac, ~35.5 GiB usable** | `14b` 8.31 | `4b` 2.26 | ~1.2 | — | **~13 GB, ≈ 37 %** | **Trivially** |
+
+**So the extract/merge split exists as an option on the Mac and does not exist on the Fedora box.** That is the asymmetry the brief predicted, it is real, and — with `gpt-oss:20b` / `qwen3:30b-a3b` (§19.6) — it is one of only two places in this entire spike where the macOS target *enables* something rather than costing something. It deserves to be on the Mac's side of the ledger, and there has not been much there.
+
+**What it costs, stated honestly, because it is not small:**
+
+- **§3.7's epoch grows a field.** Two enrichment models means two tag+digest pairs on the extraction axis. §3.7's itemised design handles it — that is what itemising is for — but the fingerprint gains a moving part and *"the `ollama pull` row is the one a human fires without meaning to"* now has two ways to fire.
+- **§7.7's residency management doubles.** Three resident models, two keep-alive policies, two unload points, and the eviction reasoning §7.7 spends most of its length on comes back — on the Mac it comes back *unnecessary* (§6.3), but the configuration surface is still there.
+- **§4.9's prompt splits in two**, each with its own hash, each independently re-tunable, each an epoch field.
+- **It is contingent.** If extraction and merge are one call, there is nothing to split. **§14.16 already asks for the timed 20-entry run that settles this**, and it should be run before any of this is designed.
+
+**A third split, which may matter more than either.** If §13.1's suspected fix is a **per-type or two-stage extraction pass**, the second stage is a set of narrow sweeps over an already-extracted entry — short prompts, short outputs, one type at a time. §10 concluded that a seven-way per-type pass on the M4 Pro at ~47 s/call is *"not a thing that can be run"*. At `qwen3:4b` speeds (~7 s/call on the Mac, ~3 s on Fedora) a seven-way pass costs **~49 s/entry on the Mac and ~23 s on Fedora** — expensive but not absurd. **§10's conclusion that the M4 Pro prices §13.1's fix out of reach is therefore conditional on the 14b, and the ladder partially reverses it.** That is an amendment to §10 and it is recorded in §19.12.
+
+---
+
+## 19.12 What this changes
+
+**No verdict in §15 changes direction.** Three change in magnitude or reasoning:
+
+| Location | Change |
+|---|---|
+| **§1, §8.2** | The per-entry penalty is **1.83–2.22×**, not 2.41–3.02×; the 10k full run on the Mac with the incumbent model is **~61–72 h** recomputed (or ~93–111 h if §1.5's 50 h is held as given and scaled), not ~121–128 h. Direction unchanged, magnitude reduced. See §19.2.2 |
+| **§7.3** | The 18 s decomposition (41 % prefill / 59 % decode) is **withdrawn**. The correct split for a real `qwen3:14b` entry is **12–30 % prefill**, and the 18 s figure describes `gpt-oss:20b`. §7.4's structural point — that the Mac shifts the pipeline toward prefill — **survives**, but the shift is from ~15 % to ~35 %, not from 41 % to 68 % |
+| **§10** | *"The M4 Pro prices §13.1's roadmapped fix out of reach"* is **conditional on `qwen3:14b`**. At `qwen3:4b` a seven-way per-type pass costs ~49 s/entry on the Mac — expensive, not impossible (§19.11) |
+| **§6, `q8_0` KV** | §6 concluded f16 KV is now the better choice on the Mac. **True for the 14b; for a 4b, `q8_0` is worth ~5 % of throughput** because the KV term does not shrink with the model (§19.5(a)) |
+| **§13** | The runtime recommendation is unchanged, but note that **`gpt-oss:20b` and `qwen3:30b-a3b` are Mac-only options** on capacity grounds, and MoE models are the one class where MLX's advantage is large and measured (§8.1 route D) |
+
+**Two rows this follow-up would add to §13.3**, both stronger than anything currently there:
+
+| New row | Status |
+|---|---|
+| **The ~18 s/entry and ~50 h figures were measured on `gpt-oss:20b`, not `qwen3:14b`** — #18 §5's own decomposition (`prefill 0.9 s` for 1,837 tokens, `decode 17.0 s` for 1,529) implies 90 tok/s and 2,040 tok/s, both impossible for a dense 14 B on a 512 GB/s card. #24 measured the real model at 42 s and 121–135 s for entries it never re-costed | **Measured on the wrong model.** Recompute, or state the caveat at the use site |
+| **`qwen3:14b` was chosen on a ceiling-fit argument (#8: *"both fit comfortably within 16GB VRAM"*), never on a quality requirement** — and the ceiling is gone on both targets. The published proxy (§19.7.1) puts the 14b→4b cost at 0.02 value-F1 and 0.07 document-validity, non-monotonic, for a 3.6× speedup | **Never measured on Tome's task.** §19.9 settles it in ~2 h |
+
+---
+
+## 19.13 New measure-on-the-machine items
+
+Continuing §14's numbering. Items 17–19 are **Fedora-box items** and do not require the MacBook at all — which is the point of §19.1.
+
+**Tier 0 — do these first, on the Fedora box, regardless of #32**
+
+17. **Run §19.9's ladder probe.** `qwen3` at 14b / 8b / 4b / 1.7b, Regimes 1 and 2, 8 paired corpus draws, five counted outcomes, pass/fail criteria fixed in advance. ~2 h of GPU time. **The most valuable single experiment named anywhere in this document.**
+18. **Recover and commit #24's 80-block synthetic corpus and its answer key.** Without it, item 17 cannot be compared to the existing 14b baseline and the probe stays folklore rather than an instrument. Synthetic by construction, so the public-repo rule permits it.
+19. **Re-measure the ~18 s baseline on `qwen3:14b`.** One entry of known size, `prompt_eval_count` and `eval_count` read back, `load_duration` / `prompt_eval_duration` / `eval_duration` recorded separately. Settles §19.2 directly and gives §1.5 a number measured on the model it names. **Combine with §14.16, which asks the same run to settle the one-call-versus-two question.**
+
+**Tier 1 additions — on the MacBook**
+
+20. **`llama-bench` the whole ladder**, not just the 14b: `qwen3` 14b/8b/4b at Q4_K_M, `-p 1762 -n 363` and `-p 3070 -n 860` to match §19.4's two reference workloads. Confirms or refutes the flat-ratio result in §19.1 in one command per model.
+21. **Two prompt lengths per model** (`-p 512` and `-p 6656`) to isolate the attention term. §19.5(b) cannot establish whether Metal's flash-attention kernels have a different relative efficiency to ROCm's; this measures it, and it is the only identified mechanism that could make the ratio size-dependent.
+22. **`q8_0` versus f16 KV on Metal**, at the 4b. §19.5(a) predicts ~5 % in `q8_0`'s favour on small models — the opposite of §6's recommendation for the 14b.
+23. **Fixed per-call overhead**, Ollama versus oMLX: time 100 sequential 1-token generations and read the floor. §19.5(c) predicts this matters most at the small end and plausibly favours Ollama; it is unmeasured and it is the reason §19.4's 4b ratio is a floor.
+24. **The runtime axis, separately from the size axis:** the same ladder under MLX 4-bit versus Ollama Q4_K_M. These are different quantisations (~4.5 vs ~4.85 bpw) and `mlx-lm`'s own table shows quality falling with bit-width, so **this is a quality experiment, not just a speed one**, and it must not be confounded with item 17.
+25. **`gpt-oss:20b` and `qwen3:30b-a3b` through §19.9's probe**, as reference arms. Both are Mac-only on capacity grounds (§19.6, §19.11), both are ~3–3.6 B-active MoEs, and MoE is the one model class where MLX's measured advantage is large. If either passes the probe, the ladder question and the platform question resolve together.
+
+---
+
+## 19.14 Additional sources for this section
+
+**Primary — Tome's own measurements, which is where most of this came from**
+
+- `research/oversize-enrichment-budget.md` (#24 Step 0, measured 2026-07-26) — the prompt at P = 1215; the 0.906 tokenizer ratio across five sizes; the silent `num_ctx/2 + 2` context-shift truncation table; VRAM at 13.12 GB; the pass-2 `f` table with `prompt_eval`, output tokens and entity counts at six entry sizes; the four-run runaway table with wall times; the split counterfactual with output tokens and wall times; the Decision-count invariant; the prompt-example contamination at 8 of 12; and the method note recording that the 80-block corpus is synthetic and uncommitted
+- **Issue #18 §5** — the 18 s decomposition (`wall 23.1 s, prompt 1,837 tok, generated 1,529 tok, load 5.1 s, prefill 0.9 s, decode 17.0 s`) and the ~5 h / ~25 h / ~50 h projection built on it
+- **Issue #24 ticket body** — that #18's ~1.5k output figure *"was measured on `gpt-oss:20b` standing in for `qwen3:14b` (which was not pulled at the time)"*; the precondition list confirming `gpt-oss:20b` was resident and `qwen3:14b` newly pulled
+- **Issue #8** — *"both fit comfortably within 16GB VRAM"*, and *"chosen over Qwen2.5:7b-instruct for extra headroom on extraction quality... and over 32B-class models to leave load-time and future-headroom margin"*
+- `PRD.md` §3.7, §4.4, §4.9, §4.10, §10.4, §12.1, §12.2, §13.1, §13.3, §13.4
+
+**Primary — vendor and registry data, queried 2026-07-26**
+
+- Ollama registry manifests (`registry.ollama.ai/v2/library/...`) for exact Q4_K_M model-blob sizes: `qwen3` 0.6b/1.7b/4b/8b/14b/32b/30b-a3b, `gpt-oss:20b`
+- HuggingFace model API for `mlx-community/Qwen3-{1.7B,4B,8B,14B}-4bit` safetensors byte totals
+- `Qwen/Qwen3-{4B,8B,14B,1.7B}/config.json` — layer counts, head counts, `head_dim`, `tie_word_embeddings`, vocabulary size
+
+**Third-party evidence on structured output by model size**
+
+- [**LLMStructBench: Benchmarking Large Language Model Structured Data Extraction**](https://arxiv.org/html/2602.14743) (arXiv 2602.14743v1, February 2026) — the full Qwen3 0.6B–32B ladder on `F1_micro` / `DOC_micro` / composite, 995 cases, five schemas, evaluated via the Ollama API with free generation. **The closest published analogue to Tome's task, and the source for the non-monotonicity finding and the 4B ≈ 8B result.** Caveats recorded in §19.7.3: it measures conformance to a given schema, not how many items to emit, and neither quantisation nor temperature is disclosed
+- [**IFStruct v1.0**, Liquid AI](https://www.liquid.ai/blog/ifstruct-v1.0) (2026-06-30) — binary structured-output compliance in isolation. Only one Qwen3 row (8B, 79.75 %); the remaining rows are Qwen3.5 and are **not comparable**. Used only for the sub-2 B cliff

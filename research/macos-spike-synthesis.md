@@ -6,9 +6,29 @@ Synthesis of five parallel research agents. Their findings are in `research/maco
 
 ---
 
+> ## ⚠ Correction — the verdict below is withdrawn
+>
+> **Added 2026-07-26, after a follow-up pass. Read this before §1 and §2.**
+>
+> Two things changed the arithmetic this synthesis rested on:
+>
+> **1. The baseline was measured on the wrong model.** §1.5's ~18 s / ~50 h was measured with **`gpt-oss:20b`, not `qwen3:14b`** — #24's ticket body says the latter "was not pulled at the time", and the decomposition confirms it (2,040 t/s prefill and 90 t/s decode would require 835 GB/s on a 512 GB/s card; `gpt-oss:20b` is a ~3.6 B-active MoE, which fits). The rebuilt rate model reproduces **seven** of #24's measurements to within 8–13%.
+>
+> **Revised: 1.83–2.22×, not 2.4–3.0×. Mac 10k full run ~61–72 h, not ~121–128 h.**
+>
+> **2. One rung down the model ladder cancels the platform penalty entirely.** `qwen3:8b` on the M4 Pro is **33.6 h/10k** against `qwen3:14b` on Fedora at **32.5 h** — a dead heat. The Mac÷Fedora ratio is *flat* across 3.7× of model size (1.83–1.94× MLX, 2.20–2.22× GGUF), because prefill ∝ N/C and decode ∝ W(N)/B scale together and the platform ratio contains no N.
+>
+> **Consequence:** the throughput argument — the load-bearing one in the "no" below — is **contingent on a model decision nobody has made**, and settling it costs ~2 hours of GPU time. §2's other claim, that the Mac prices §13.1's fix out of reach, was also conditional on the 14b: a seven-way per-type pass costs ~49 s/entry on the Mac at 4b, which is expensive rather than impossible.
+>
+> **The verdict is therefore withdrawn, not reversed.** What survives unchanged is the §5 cluster — the unsealable MCP server, the structurally-broken leak tripwire, Postgres outside the log bound. Those are the real remaining objections, and the second and third are largely dissolved by harvest item 2 (Tome-owned log files), which leaves **the egress seal as the one genuine architectural regression no model choice repairs.**
+>
+> Full detail in §19 of `macos-spike-inference.md`. The model-ladder question is **orthogonal to #32** and should be decided on the Fedora box regardless of what happens to this spike — see harvest item 7.
+
 ## 1. Verdict
 
 **No — not as a replacement target, and not as a second supported target.**
+
+*(Superseded — see the correction above. Retained because the reasoning below is otherwise intact and the non-throughput objections still stand.)*
 
 The move buys a large, genuine simplification and pays for it with a **2.4–3.0× throughput regression** that lands precisely on the system's weakest and most architecturally load-bearing operation. That trade is bad on its own terms, and it gets worse: the same regression prices out the *known* fix for the one question the PRD leaves open.
 
@@ -115,6 +135,9 @@ Recorded fairly, because it is more than a rounding error.
 4. **`initdb --locale-provider=builtin --locale=C.UTF-8`.** Strengthens §8.2's "a file on any Unix" claim on the current target. Discovered by the host change rather than caused by it.
 5. **Reproducibility may be reachable, and it is a runtime question, not a hardware one.** §3.7 calls it *"unreachable, not merely expensive"* on facts that are pure Ollama-registry artifacts (`PruneLayers()` at server start, confirmed in source; mutable tags; refusal of digest-addressed models). A runtime that pins by content hash and does not GC its cache would overturn that — **on Fedora, today**. This reaches into #17's epoch design, so it is a substantial ticket, not a tweak.
 6. **A correction to a current-PRD fact.** btrfs documents that `nodatacow` implies `nodatasum` and disables compression — so `chattr +C` means **PGDATA was never compressed on Fedora either**. §8.2's space arithmetic is right; its stated reasoning is not.
+7. **The enrichment model size has never been argued from the task.** #8's justification for `qwen3:14b` is verbatim *"both fit comfortably within 16GB VRAM"* — a ceiling-fit, not a quality requirement, and §12.1 records that the size was only ever corrected in its *footprint*, never re-examined as a choice. The constraint is gone. Published evidence (LLMStructBench, Feb 2026, whole Qwen3 ladder through the Ollama API) is **non-monotonic — 14B beats 32B — and 4B ≈ 8B**, with 14b→4b costing 0.02 value-F1 for a 3.6× speedup. But both it and IFStruct measure conformance to a *given* schema, never *how many items to emit*, so **§4.10's failure would score near the top of both** — they cannot answer the question. What can: **#24's synthetic probe, which has only ever been run at one model size.** ~2 hours for the full ladder, on the Fedora box, with a paired design specified in §19.9 of the inference document. Two facts that shape expectations — on Decisions **the 14b is already at the floor** (1 of 7 at every size, including the run that found 42 entities), so the large model is not currently buying what under-extraction is about; and **the ladder is a reversible decision**, since raw is immutable and entities are purely derived, so a wrong choice costs one full run and nothing else. **Blocker: #24's corpus was deliberately never committed.** It is synthetic, so it should be recovered and committed, or the probe stays folklore.
+
+8. **A correction to a current-PRD measurement.** §1.5's ~18 s/entry and ~50 h full run were measured on **`gpt-oss:20b`**, not `qwen3:14b` — see the correction block at the top. Every downstream figure that cites them inherits the error, including §4.1's "hours" contract and the roadmap costs in §10.
 
 ---
 
