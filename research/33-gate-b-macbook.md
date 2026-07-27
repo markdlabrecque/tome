@@ -1,5 +1,64 @@
 # #33 Gate B and the two carried hazards — measured on the MacBook
 
+> **CORRECTION, 2026-07-27 — read before §0.** Two claims in this document are withdrawn,
+> and the Fedora comparator has been re-measured.
+>
+> 1. **The env-var caveat below is false.** This document states the Fedora box did not set
+>    `OLLAMA_FLASH_ATTENTION=1` / `OLLAMA_KV_CACHE_TYPE=q8_0` (§0 and *Carried forward* item 1).
+>    **Fedora has had both since 2026-07-22**, in
+>    `/etc/systemd/system/ollama.service.d/90-pi-local-rocm.conf`, predating all benchmarking
+>    on either machine. The configurations match on this axis and **the cross-machine ratios
+>    need no such qualification.** Withdrawn on the ticket too (#33, 2026-07-27).
+> 2. **`server_env` could not have shown this, which is how the error survived.** This
+>    document cites `server_env` as the record — but `embed_latency.py:server_env()` had no
+>    Linux branch. It returned `{"vars": {}}` on Fedora, which reads as *"nothing set"* and is
+>    indistinguishable from *"not checked"*. Fixed in `b869633`; absence now reports
+>    `"unavailable"`, and both machines' artifacts carry the two flags.
+> 3. **The Fedora comparator is now measured with this document's own instrument.** It
+>    previously existed only as prose in `NEXT-STEPS.md` — no n, no protocol, no raw data.
+>    `research/gate-b/embed-latency-odin.json`, n=25: **warm ceiling median 189.9 ms**
+>    (IQR 189–191), **cold 1,281 ms**, **query 87.5 ms**. The original 184 ms holds up.
+>
+> **Net effect on the numbers: none of the Mac measurements change.** The ratios become
+> **2.36× warm / 1.07× cold / 1.13× query**, like-for-like on one instrument. Gate B still
+> passes with 11.2× headroom.
+>
+> 4. **The Ollama version difference has been tested, and it is not the explanation either.**
+>    Fedora was upgraded 0.32.1 → **0.32.4**, matching the Mac, with the drop-in env preserved
+>    and all four model digests verified identical — so the runtime version was the only
+>    variable. Re-measured (`embed-latency-odin.json`; the 0.32.1 baseline is retained as
+>    `embed-latency-odin-ollama-0.32.1.json`):
+>
+>    | | 0.32.1 | 0.32.4 | Δ |
+>    |---|---|---|---|
+>    | warm ceiling | 189.9 ms | **191.2 ms** | +1.3 ms |
+>    | cold | 1,281.4 ms | **1,281.7 ms** | +0.2 ms |
+>    | query | 87.5 ms | **87.9 ms** | +0.4 ms |
+>
+>    **No material change** — 0.7% on the warm path, if anything slightly slower.
+>
+> **Where that leaves the overshoot.** With versions matched, env matched, digests verified and
+> one instrument on both sides, the ratios are **2.34× warm / 1.07× cold / 1.13× query**. The
+> warm figure still exceeds #32's projected **1.83–2.22×** band, and every candidate confound
+> has now been eliminated by measurement rather than argument.
+>
+> **The most likely reading is therefore that #32's band was simply too narrow for the warm
+> encoder path, not that anything here is confounded.** That band was derived from
+> decode-bound reasoning; a warm encoder forward pass on a 1,839-token input is a different
+> regime, and the two ratios that *are* inside the band (cold at 1.07×, query at 1.13×) are
+> both dominated by fixed overhead rather than by compute. The remaining difference is
+> Metal-vs-ROCm, which is what "platform difference" *means* — it is not a confound to be
+> removed. **Recommendation: widen or split the band by regime rather than treat 2.34× as an
+> anomaly.**
+>
+> **Resolved — the split already exists, so no widening is needed.** Written independently on
+> the Mac, and it lands where the reasoning above points. `research/macos-spike-inference.md`
+> §19.3 decomposes #32's band directly: **4.30× prefill, 1.80× decode**, blended in
+> `qwen3:14b`'s proportions. `bge-m3` is 100% prefill, so **4.30× is its comparator and 2.34×
+> is an undershoot of it.** The ratio is also not a constant — it slides with input length,
+> from ~1.0–1.3× at 128 tokens to ~2.45× at 2,048 — so no single number belongs in the band at
+> all. See `research/gate-b-overshoot.md`, and the correction block below.
+
 **Machine:** MacBook Pro, Apple M4 Pro, **16 GPU cores** (confirmed via `system_profiler SPDisplaysDataType`), 48 GB unified memory, macOS 27.0 (`macOS-27.0-arm64-arm-64bit`).
 **Runtime:** Ollama **0.32.4**, Homebrew CLI formula, running as the LaunchAgent `homebrew.mxcl.ollama` on `127.0.0.1:11434`.
 **Models:** `bge-m3:latest` (1.2 GB), `qwen3:14b` (9.3 GB).

@@ -91,12 +91,27 @@ def build_ceiling_text(target=TARGET_TOKENS):
 
 
 def server_env():
-    """Ollama's own environment, as the LaunchAgent (macOS) or drop-in (Linux) sets it."""
+    """Ollama's own environment, as the LaunchAgent (macOS) or drop-in (Linux) sets it.
+
+    The Linux branch was missing: this returned `{"vars": {}}` on Fedora, which reads as
+    "no variables set" and is indistinguishable from "not checked". That silence is what
+    made `OLLAMA_FLASH_ATTENTION`/`OLLAMA_KV_CACHE_TYPE` look Mac-only when Fedora has had
+    both since 2026-07-22, and the Gate B doc cites this field as its evidence. Absence is
+    now reported as `"unavailable"` rather than as an empty result.
+    """
     import glob, plistlib
     for p in glob.glob(str(Path.home() / "Library/LaunchAgents/*ollama*.plist")):
         with open(p, "rb") as fh:
             return {"source": p, "vars": plistlib.load(fh).get("EnvironmentVariables", {})}
-    return {"source": None, "vars": {}}
+    if platform.system() == "Linux":
+        r = subprocess.run(["systemctl", "show", "ollama", "-p", "Environment"],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and "=" in r.stdout:
+            body = r.stdout.strip().split("=", 1)[1]
+            got = dict(kv.split("=", 1) for kv in body.split() if "=" in kv)
+            return {"source": "systemctl show ollama -p Environment", "vars": got}
+        return {"source": "systemctl unavailable", "vars": "unavailable"}
+    return {"source": "unavailable on this platform", "vars": "unavailable"}
 
 
 def spread(xs):

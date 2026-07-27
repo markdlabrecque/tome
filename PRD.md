@@ -137,7 +137,7 @@ Append-only. The only mutations are `enrichment_state` and its companions, a Typ
 | `embedding` | `vector(1024)`, **nullable** — capture may defer it (§4.5). `SET STORAGE PLAIN`. Computed over `text` **alone**. | #16, #25 §2 |
 | `embedding_epoch_id` | FK to `derivation_epochs`. Replaces #10's `embedding_model` text column: the epoch record already names the model *and* carries its digest. **Written at capture, and never reconstructable** — see the write-once warning below. | #17 |
 | `captured_at` | **Caller-supplied and required**, no server default, so backfills are expressible. The server flags a wild disagreement with its own clock rather than silently accepting it (§11). | #11, #15 §9 |
-| `source` | Capturing **client type only** (e.g. `claude-code`, `claude-desktop`), read from `clientInfo` in the MCP `initialize` handshake. Never device. Never agent-supplied. | #10, #13 |
+| `source` | Capturing **client type only**, read from `clientInfo.name` at `initialize` and stored **verbatim**. **Nullable** — `NULL` means *not recorded*, never a sentinel (§9.4). The two real values are `claude-code` and **`claude-ai`** (Desktop; *not* `claude-desktop`, which no client sends). Never device. Never agent-supplied. **Never read to change behaviour.** | #10, #13, #34 |
 | `enrichment_state` | `pending` \| `enriched` \| `failed` \| `resolution_required` \| `skipped`. There is deliberately **no `in_progress`** state (§4.6). | #12 §4, #14 §4 |
 | `last_enriched_at` | | #10 |
 | `attempt_count` | N = 3 before an entry leaves normal incremental runs. Capture-time embed timeouts **never** count toward it. | #12 §4–5 |
@@ -319,7 +319,19 @@ Written on **every** search, always, with **no `debug` gate**. Adds zero MCP too
 
 **Both tools are logged, which is forced** — the fallback signal below cannot exist unless `search_raw` calls are logged too. It also happens to be right for the tripwire: no ANN index exists on *either* layer, and raw rows grow faster than entities, so raw is what hits the wall first.
 
-**Judgements: a session id, and nothing else.** Sessions are stateful by force (§7.5), so the server has a session identity at every `tools/call`. The tool description names the trigger *reach for `search_raw` when scores come back uniformly low* — so `search_raw` immediately after `search_entities` in the same session **is** a relevance judgement, revealed rather than self-reported. One column turns it into a negative signal: here are the queries entity search failed on. **Noisy, and recorded as such** — there is also a *structural* reason to fall back (the entry may be newer than the last run), so some fallbacks are not quality failures; the optional date range gives a partial filter.
+**Judgements: a session id, and nothing else.** Sessions are stateful by force (§7.5), so the server has a session identity at every `tools/call`. The tool description names the trigger *reach for `search_raw` when scores come back uniformly low* — so `search_raw` shortly after `search_entities` in the same session **is** a relevance judgement, revealed rather than self-reported. One column turns it into a negative signal: here are the queries entity search failed on. **Noisy, and recorded as such** — there is also a *structural* reason to fall back (the entry may be newer than the last run), so some fallbacks are not quality failures; the optional date range gives a partial filter.
+
+**"Same session" has three different grains, and the coarsest is why the predicate is time-bounded.** Measured (#33 Gate A, #34):
+
+| Entry point | One session lasts |
+|---|---|
+| Claude Code over loopback HTTP | one client session — 8 sessions were served by one server process over 944 s |
+| Claude Code over stdio | one `claude -p` invocation — a fresh process each time |
+| **Claude Desktop over stdio** | **one app launch** — which can be days, and spans every conversation in it |
+
+The Desktop grain is the problem: `search_raw` in one conversation would otherwise read as a judgement on a `search_entities` from an unrelated conversation hours earlier. So the pairing rule is **same session *and* within a bounded interval** — a starting-point value (§13.4), not a measurement. **Store the session id raw and apply the interval at read time**, so the bound is re-cuttable against logged history rather than baked into rows.
+
+**The session id is minted by Tome, not lifted from the transport.** `session_id` is `None` on stdio, so there is nothing to read; a process-lifetime UUID gives exactly the grains in the table above. That the id is a *process* identity rather than a conversation identity is the whole of the finding — for Desktop, process means app-launch-to-quit. (#34, #33)
 
 Row cost ~650–700 bytes, results dominating: ~4 MB / ~18 MB / ~73 MB per year at 10 / 50 / 200 searches a day. **Capacity is irrelevant at any window**, which is what makes retention purely a privacy dial (§8.5).
 
@@ -1085,9 +1097,14 @@ What the chosen shape buys:
 | **A legible 403 naming the mismatch** | Same subclass — the SDK returns **421**. |
 | No SSE streams remain | `json_response=True`. |
 
-**Sessions are stateful — forced, not chosen.** `_client_params` is per-`ServerSession` instance state, set only when `initialize` arrives on that session. Stateless mode builds a fresh transport and session *per request*, so a `tools/call` would arrive with `client_params is None`, **breaking `source`**. There would be no retained handshake to read.
+**Sessions are stateful — forced, not chosen, and the forcing is only as durable as the version pin.** `_client_params` is per-`ServerSession` instance state, set only when `initialize` arrives on that session. Stateless mode builds a fresh transport and session *per request*, so a `tools/call` would arrive with `client_params is None`, **breaking `source`**. There would be no retained handshake to read. **Verified in the shipped source and by running it** at `mcp` v1.28.1 (`777b8d06`, 2026-06-26): stateless → `client_params is None`; stateful → the handshake's `clientInfo` is there to read (#34).
 
-Two side effects, both favourable: the SDK's reported memory leak was **stateless-mode only**, so this avoids it by construction rather than by trusting a fix; and the session identity that makes the fallback judgement signal possible (§3.8) exists only because sessions are stateful.
+**The premise is `mcp>=1.28,<2` (§8.8), and outside that pin this paragraph is wrong.** On `mcp` 2.x's modern protocol era, `client_params is None` is a *served* outcome that **no server-side setting can prevent** — `Connection.from_envelope` builds a fresh connection per request over stdio, the request succeeds, and there is no `stateless` flag to decline. The client's first frame chooses the era; the server does not. So "never stateless" is a real and sufficient obligation **on the pinned line** and would become an empty one off it. That is the pin's load-bearing job, not merely dependency hygiene. (#34)
+
+Two side effects, and they are **downstream of `source` rather than independent of it** — if `source` were ever dropped, both would have to be re-argued on their own terms rather than inherited (#34):
+
+- The SDK's reported memory leak was **stateless-mode only**, so this avoids it by construction rather than by trusting a fix. But the *reason* stateless is off the table is `source`; delete the column and stateless becomes the simpler choice for the HTTP entry point, at which point the leak is a live consideration again rather than a closed one.
+- The session identity that makes the fallback judgement signal possible (§3.8) exists only because sessions are stateful. **Its grain is not uniform across entry points** — see §3.8, which now states the three grains and bounds the predicate in time because of the coarsest of them.
 
 **No server-initiated SSE, ever.** The spec makes the server-initiated stream a MAY, and `warnings` already resolved the only thing that would have needed it. Building the stream would mean per-client connection state plus event-ID replay for resumability, with no traffic on it. **The door this closes:** the server can never *volunteer* anything without a retrofit.
 
@@ -1468,7 +1485,11 @@ This does not change any decision above — it *calibrates* several. It is why r
 
 *Source: #19.*
 
-### 8.8 Version pinning — already satisfied structurally
+### 8.8 Version pinning — structural for Ollama, explicit for `mcp`
+
+**The Python side needed a real pin, and it is `mcp>=1.28,<2`** in `pyproject.toml`, with the reasoning recorded inline in the file. This is not dependency hygiene: it is the premise of §7.5's statefulness obligation and therefore of `source` existing at all. On `mcp` 2.x, `mcp.server.fastmcp` does not exist, and `client_params is None` is a *served* outcome no server-side setting can prevent — so the ⚠ "never stateless" obligation would go on being followed while silently ceasing to be sufficient.
+
+**The bound carries a clock in the other direction**, and it is the reason to revisit rather than to forget: `mcp` 1.x caps at protocol revision 2025-11-25, so a 1.x Tome will refuse a client that opens with a 2026-07-28 envelope. Lifting the pin means re-deciding §7.5 and §9.4's `NULL` handling *first*, not afterwards. (#34)
 
 **Ollama is not RPM-installed**: `/usr/local/bin/ollama`, owned by no package, v0.32.1, upgradeable only by re-running the install script by hand. So "pin the Ollama version" is satisfied by construction — **there is no unattended upgrade path to defend against, and no `dnf versionlock` to install.** What was missing was never pinning, it was *recording*, which the Ollama-version field of the Derivation Epoch now does.
 
@@ -1561,13 +1582,56 @@ claude mcp add --transport http tome http://odin.<tailnet>.ts.net:PORT/mcp
 
 ### 9.4 Provenance
 
-**`source` records client type only**, from `clientInfo` in the `initialize` payload. Not device.
+**`source` records client type only**, from `clientInfo.name` in the `initialize` payload. Not device.
 
 The bridge runs on the MacBook, so it does not obscure device identity — the server still sees the Mac's tailnet IP — but device is an operational detail rather than provenance you would query, and reading it would require inspecting the connection and doing a tailnet lookup: a genuinely new capability rather than a field lifted from a payload already being parsed.
 
 **Accepted asymmetry: raw is immutable, so entries captured without device provenance can never gain it.**
 
-*Source: #13.*
+### What the field actually carries — measured, not assumed
+
+The observed payloads (#33 Gate A, `mcp` 1.28.1, protocol 2025-11-25; #34):
+
+| Client | `clientInfo` |
+|---|---|
+| Claude Desktop 1.24012.9 | `{"name": "claude-ai", "version": "0.1.0"}` — nothing else |
+| Claude Code 2.1.219/220 | `{"name": "claude-code", "title": "Claude Code", "version": "<real>", "description": …, "websiteUrl": …}`, byte-identical over stdio and HTTP |
+
+Three consequences, all recorded because each is a place someone would otherwise assume more:
+
+- **`name` only is stored, deliberately.** Claude Code offers four more fields; none is load-bearing and each would be a second thing to keep honest in an immutable row.
+- **`version` is unusable and is not stored.** Desktop reports `0.1.0` while the app is 1.24012.9. **Nothing may ever be gated on a client's reported version.**
+- **The field is one bit with two values on this deployment**, and `claude-ai` does not distinguish Desktop from any other first-party surface — it distinguishes it from `claude-code`, which is the whole of the information. The column name oversells it; read it as *which client wrote this*, not as provenance in any richer sense.
+
+**Stored verbatim, never normalised.** `claude-ai` is not rewritten to `claude-desktop`. A normalising map is a guess about a vendor's naming baked permanently into rows that cannot be corrected, and the mapping is not even stable — `claude-ai` may later cover surfaces that are not Desktop. Legibility is a read-side concern; the stored value is what the client said.
+
+### `source` is kept, and why — the write-once asymmetry
+
+The column earns its place on availability rather than on current demand. **Nothing reads it today**: it is returned only under `debug: true` (§5.1, §5.3) and retained through a Tombstone (§5.6). Nothing filters on it, and nothing branches on it.
+
+It stays anyway, for the reason that already decided `embedding_epoch_id` and `query_log`: **raw is immutable, so this is recorded at capture or never.** Add the column in six months and every prior entry is permanently anonymous — deferring does not postpone the cost, it postpones the start of the clock. Against that, the cost of keeping it is ~15 bytes a row and one dictionary read on a path with 11× measured headroom (§4.5).
+
+What it buys, stated as expectation rather than fact: the two values separate **human-in-chat capture from Desktop** from **agent-driven capture inside Claude Code**, which are different capture regimes. That is the only available slice on two questions the system cannot otherwise answer — whether `context` quality differs by client (§3.3 says nothing can verify it and the tool description is the only lever, so knowing *which* client's agent misjudges the trigger is the one handle available) and whether extraction recall differs by regime (§13.1, §10.4). Neither is measured. **This is the argument for keeping a cheap unbackfillable field, not a claim that the field is already useful.**
+
+**It must stay non-behavioural.** Protocol revision 2026-07-28 adds an explicit note that `clientInfo` is "intended for display, logging, and debugging" and that servers **SHOULD NOT** use it to change their behaviour. A provenance column sits inside that blessed use; anything downstream branching on `source` leaves it. Recorded as a rule, since the field's existence is a standing invitation to break it.
+
+### When client identity is absent: `NULL`, never a sentinel, never a refusal
+
+| Option | Verdict |
+|---|---|
+| **`NULL`** | **Chosen.** It is the true statement — *not recorded* — and it is what SQL's `NULL` already means. |
+| A sentinel (`unknown`, `anonymous`) | **Rejected.** It is a lie that survives forever in a row that cannot be corrected, and off the pin it cannot even be an accurate lie: on `mcp` 2.x a **malformed** `clientInfo` is silently degraded to the same `None` as an absent one (#34), so a sentinel would merge "the client declined to identify itself", "the client sent garbage", and "Tome was misconfigured" into one value with no way back. |
+| Refuse the capture | **Rejected.** §7.3 makes the capture path degrade rather than fail on purpose, §5.1's rejections are reserved for content that *cannot be stored correctly*, and #33 Gate A found Claude Desktop **never restarts a dead stdio server**, so failures on this path are unusually expensive. Trading a memory for a label about the client is the wrong direction: the label is metadata about the writer, the memory is the asset. |
+
+**On the pinned line `None` is unreachable from any client, which is what makes it a tripwire.** Measured on `mcp` 1.28.1 over real stdio pipes (#34): `clientInfo` is a **required** field of `InitializeRequestParams`, and every ill-formed variant is rejected at the handshake with `-32602` before Tome sees a thing — absent, `null`, `{}`, wrong types, and extra-keys-only all fail. It is not degraded, it is refused. No examined client omits it anyway: python-sdk substitutes a default, the TS SDK takes it as a required constructor argument, Claude Code hard-codes it, and Desktop sends `claude-ai` (#34, #33).
+
+So `client_params is None` at capture time on the pinned line means **Tome is misconfigured** — stateless mode enabled, or the pin crossed — not that a client chose anonymity.
+
+**The one hole the pin does *not* close: an empty name.** `{"name": "", "version": "1"}` passes validation and is **served**, with `clientInfo.name == ""` (probed, same run). Pydantic constrains the field's presence and type, not its content. An empty string is neither an identity nor an honest absence, so **an empty or whitespace-only `name` is treated as absent** — `NULL`, same as `None`, same warning. This is the *absence* case, not an exception to storing real names verbatim. No client Tome will meet does this; it is written down because it is the only reachable path to a junk `source` value on the pinned line, and an immutable row is the wrong place to discover it.
+
+**Build obligation:** write `NULL`, complete the capture, and emit **one `WARNING`-level log line** naming the entry id (never its text — invariant C, §7.10). It is a health signal, not a caller-facing one, so it is **not** a `warnings` entry (§5.10): the caller cannot act on it, and if the pin were ever crossed it would fire on every capture. **And the `NULL` must never be read as "the client chose anonymity"** — the day the pin lifts, `NULL` also covers a malformed payload.
+
+*Source: #13; measured and revised by #34, #33.*
 
 ---
 
@@ -1701,7 +1765,8 @@ If only one part of this section is checked, check this table. Every row is a ca
 | ⚠ | **`--rotate` with any scoped journald vacuum** | Vacuum skips *active* files, so a bare `--vacuum-time=1s` leaves everything recent behind. | 8.3 |
 | ⚠ | **No concrete example natural keys in the extraction prompt** | Reproducible in **8 of 12 responses**: example keys are re-emitted as **fabricated Entities** with confabulated summaries. A fabricated Commitment does not read as an error; it reads as a memory. | 4.9 |
 | ⚠ | **Rejections must use FastMCP's dedicated tool-error type, not a bare `ValueError`** | FastMCP masks unexpected exception detail, so *permanent / the numbers / the remedy* all collapse into "internal error" — reinstating the silent failure the rejection exists to prevent. Applies to both the size gate and `context`'s cap. | 5.1 |
-| ⚠ | **Stateful sessions (never `stateless`)** | `_client_params` is per-`ServerSession` state set at `initialize`, so a stateless `tools/call` arrives with none — **breaking `source`** and the session id the fallback signal depends on. | 7.5 |
+| ⚠ | **Stateful sessions (never `stateless`) on the HTTP entry point** | `_client_params` is per-`ServerSession` state set at `initialize`, so a stateless `tools/call` arrives with none — **breaking `source`** and the session id the fallback signal depends on. | 7.5 |
+| ⚠ | **`mcp>=1.28,<2` in `pyproject.toml`** | The row above. On 2.x, `mcp.server.fastmcp` **does not exist**, and `client_params is None` becomes a *served* outcome no server-side setting can refuse — so "never stateless" silently stops being sufficient while still being followed. | 7.5, 8.8 |
 | ⚠ | **`configure_logging()` pinning non-`tome` loggers to `WARNING`** | A FastMCP version that logs tool arguments at `DEBUG` puts `capture_entry`'s full text in the journal **with no Tome code involved**. | 7.10 |
 | ⚠ | **`logging_collector=off` and `log_parameter_max_length_on_error=0` on Postgres** | The first makes PG write files under the data dir — a third log store outside every bound and outside the dumps. The second means a failed insert into `raw_entries` **logs the entry text itself**. | 7.11 |
 | ⚠ | **Record the embedding model **tag *and* digest** at capture** | The only piece of this design that **cannot be fixed later**. Raw provenance is write-once and already decaying: every vector written without a digest goes permanently ambiguous the moment the tag republishes. | 3.2 |
@@ -1758,8 +1823,10 @@ If only one part of this section is checked, check this table. Every row is a ca
 - [ ] **Allow an absent `Origin`; reject a present-but-unallowlisted one.** *(#13)*
 - [ ] **Legible 403** naming the received `Host` and the allowed set — the SDK returns 421. *(#13, #20)*
 - [ ] `json_response=True`. **No server-initiated SSE, ever.** *(#13, #20)*
-- [ ] ⚠ **Stateful sessions.** *(#20)*
-- [ ] `source` read from `clientInfo` at `initialize` — **client type only**, never agent-supplied, never device. *(#10, #13)*
+- [ ] ⚠ **Stateful sessions**, and ⚠ **`mcp>=1.28,<2`** — the second is what makes the first sufficient. *(#20, #34)*
+- [ ] `source` read from `clientInfo.name` at `initialize` — **client type only**, stored **verbatim** (`claude-ai`, not `claude-desktop`), never agent-supplied, never device, never read to change behaviour. *(#10, #13, #34)*
+- [ ] `raw_entries.source` **nullable**; write `NULL` when client info is absent **or its `name` is empty/whitespace** (the one junk value 1.x validation lets through), never a sentinel, and **never refuse the capture**. Log one `WARNING` when it happens — on the pinned line it should be unreachable. *(#34)*
+- [ ] The fallback-judgement pairing (§3.8) applies its interval **at read time**; the session id is stored raw. Never bake the bound into a row. *(#34)*
 - [ ] Flag a `captured_at` that disagrees wildly with the server clock. *(#15)*
 
 ### 11.6 The runner
@@ -1885,7 +1952,9 @@ The map records corrections in place, so **a naive read of an early ticket gives
 | **#15: the extraction prompt lives in `/etc/tome/`** | **The prompt is code**, shipped in the package, in git, inside `make deploy` and inside review. | #17 |
 | **#15: process startup cost is a concern for a 15-min `oneshot`** | **Retired on measurement** — 0.17 s warm / 0.45 s cold. | #20 |
 | **#9: the transport's `Origin` MUST** | Cannot be read strictly — **neither client sends `Origin` at all.** Implemented as a `Host` allowlist, absent `Origin` allowed, present-but-unallowlisted rejected. | #13 |
-| **#9: a reported memory leak in the Python SDK's Streamable HTTP** | **Stateless-mode only**, and stateless is impossible here anyway — avoided by construction. | #20 |
+| **#9: a reported memory leak in the Python SDK's Streamable HTTP** | **Stateless-mode only**, and stateless is *declined* here — avoided by construction on the pinned 1.x line. Two corrections: "impossible" was too strong (it is a setting Tome refuses, not an unavailable one), and the avoidance is **downstream of `source`** rather than independent — drop the column and the leak is a live consideration again. | #20, #34 |
+| **#13/#10: `source` example value `claude-desktop`** | **No client sends it.** Desktop announces `{"name": "claude-ai", "version": "0.1.0"}` — a placeholder version against app 1.24012.9. Stored verbatim; nothing may be gated on a reported version. | #33, #34 |
+| **#20: sessions are stateful "forced, not chosen", full stop** | **True only on `mcp>=1.28,<2`.** On 2.x's modern era a `clientInfo`-less request is *served* with `client_params is None` and no server-side setting refuses it; the client's first frame picks the era. The pin is the premise, not a detail. Also corrected: the earlier reading that the 2.x failure was "structurally unreachable on stdio" is **false** — reproduced over real pipes. | #34 |
 | **#16: the tripwire fires on "measured `search_entities` p95"** | **Now fireable** — `percentile_cont(0.95)` over `query_log.duration_ms`. **The threshold number is still open.** | #23 |
 | **#11's lean-response convention** | **Three named departures** — `warnings`, `score`, and `context` on status items (§5). The always-on `query_log` is *not* a fourth: `debug` governs what the caller sees. | #12, #16, #23, #25 |
 | **#21: `context` is "the only channel carrying *why* something was captured"** | **Contradicted, and motive is cut.** It has no consumer once extraction is subordinated and proactive surfacing is out of scope, and it is the most hallucination-prone content in the field. | #25 |
@@ -1919,7 +1988,10 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **The server can never volunteer anything without a retrofit** | No server-initiated SSE. The door is closed knowingly. | 7.5 |
 | **"Search degraded, capture fine" is reachable without noticing** | The deliberate consequence of `tome-mcp` being soft on Ollama — which is what protects capture. `warnings` is what announces it. | 7.3 |
 | **The `warnings` channel is dead if the MCP server fails to start** | Surfaces only as a Claude connection error: obvious that something is wrong, not *what*. Desktop notifications are the deferred fix. | 10.3 |
-| **Entries captured without device provenance can never gain it** | Raw is immutable; `source` is client type only. | 9.4 |
+| **Entries captured without device provenance can never gain it** | Raw is immutable; `source` is client type only. **Near-vacuous under the on-device deployment** — there is one device by construction — but it becomes live again the moment a second device captures, and by then the old rows are already silent. | 9.4 |
+| **`source` is one bit with two values, and no client's reported version is usable** | Desktop announces `0.1.0` while the app is 1.24012.9, and `claude-ai` distinguishes Desktop from `claude-code` and from nothing else. Kept on the write-once asymmetry — unbackfillable, ~15 bytes — **not** because anything reads it yet. Nothing may ever be gated on a client's reported version. | 9.4 |
+| **`source` arriving `NULL` is indistinguishable from a malformed `clientInfo`** | On the pinned `mcp` 1.x line neither is reachable from a client, so a `NULL` means Tome is misconfigured and is logged as a health signal. Off the pin, the two merge permanently — which is the reason there is no sentinel to merge them into. | 9.4 |
+| **§3.8's fallback signal pairs across conversations on Claude Desktop** | Desktop's session is one *app launch*, so the "same session" predicate is bounded in time (§13.4) rather than made precise. The bound is applied at read time and re-cuttable; the signal was already recorded as noisy. | 3.8 |
 | **An `ollama pull` between restarts leaves captures stamped with the old epoch** | Fixing it means an `/api/tags` call per capture, reintroducing a hard Ollama dependency on the one path made soft. Attribution, not forensics. | 3.2 |
 | **Nothing can verify `context` quality; the residual is "the agent misjudged the trigger"** | No telemetry, no ground truth for a situational note. The tool description is not merely the chosen lever — it is the only one available, and **the absence of a check is a finding, not an oversight.** | 3.3 |
 | **`context` is unreachable by search** | Payable only because extraction reads it, re-routing the referent to the primary tier. | 3.3 |
@@ -1947,12 +2019,13 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **The `num_batch` behaviour is undocumented** and sits beside a `TODO` in Ollama's source | Re-probe after any upgrade |
 | **The 1,000-char `context` cap and its 500-token allowance** | Explicitly labelled estimates, not calibration |
 | **The backup space budget** | Arithmetic, not measurement — which is why the free-space guard exists rather than the table |
+| **That `source`'s two values separate meaningfully different capture regimes** (Desktop's human-in-chat vs Claude Code's agent-driven) — the sole stated benefit of keeping the column | Expectation, not finding. The column is kept on the **unbackfillability** argument; this is what it is *hoped* to buy. Settleable from the query log and a judged set (§10.4) once rows exist. |
 | **Claude Desktop's lack of native remote-MCP support** | Verified at decision time; **re-check before building** |
 | **The `granite-embedding-english-r2` near-miss** | Not in the Ollama library at decision time; worth re-checking |
 
 ### 13.4 Starting-point values — chosen, not derived
 
-> **Read this before using any number in this section.** The four values below are **educated guesses, filled in so that nothing blocks on an unmade decision.** None is a technical requirement, none was measured, and no analysis anywhere in this document depends on any of them being right. They exist so a builder is not forced to invent a number silently and so there is a single place to tune. **Expect to change all four**, and treat a change as configuration, not as overturning a decision.
+> **Read this before using any number in this section.** The five values below are **educated guesses, filled in so that nothing blocks on an unmade decision.** None is a technical requirement, none was measured, and no analysis anywhere in this document depends on any of them being right. They exist so a builder is not forced to invent a number silently and so there is a single place to tune. **Expect to change all four**, and treat a change as configuration, not as overturning a decision.
 >
 > Each is stated at its use site with a pointer back here, so the caveat travels with the number.
 
@@ -1961,6 +2034,7 @@ Kept separate from §10 on purpose: nothing here is out of scope. These are thin
 | **`entities.summary` length bound** (§3.3) | **1,200 characters** | ~15% of a maximum-size capture (2,048 tokens ≈ 8,000 chars), so a summary stays visibly compressive even for a single-source Entity and dramatically so for a merged hub — which is the tiering premise's whole claim. Roughly 200 words: one solid paragraph. Sits beside `context`'s 1,000-char cap in the same idiom, and fits trivially in the merge prompt alongside a full-size entry. **Characters, not tokens**, so it enforces at write time with no tokenizer call. | Hub Entities read as truncated mid-thought, or summaries are padding out to the cap with filler. |
 | **Global confidence threshold** (§5.7) | **0.7** | Below it, extraction records an `ambiguous` Type Suggestion instead of committing. LLM-emitted confidences are poorly calibrated and bunch high, so a conventional 0.5 would essentially never fire and the suggestion channel would go dead. 0.7 is high enough to catch genuine hesitation without flooding `review_schema`. | The `ambiguous` list is either empty for weeks or too long to review. `review_schema`'s histogram exists precisely to re-cut this line counterfactually first. |
 | **Type-stickiness override margin** (§3.3) | **new confidence ≥ incumbent + 0.20, and ≥ the global threshold** | §3.3 says an existing type wins unless the new classification is "substantially higher" and never says what that means. Two conditions rather than one: a *margin* stops a 0.71-vs-0.70 flicker from re-typing an Entity every run, and the *floor* stops a low-confidence pair from re-typing on a technicality. | Entities are observed flip-flopping between types across runs (margin too small), or a genuinely mis-typed Entity will not correct itself (too large). |
+| **Fallback-judgement pairing interval** (§3.8) | **`search_raw` within 300 s of a `search_entities` in the same session** | The signal wants "the caller looked at those scores and reached for the fallback", which is one or two LLM turns. Any bound at all is required only because Claude Desktop's session is one *app launch* (§3.8), so an unbounded predicate pairs across unrelated conversations; on both Claude Code grains the session is already tight enough that the interval rarely binds. 300 s is generous against a turn and short against a conversation boundary. **Applied at read time**, so it is re-cuttable against logged history without touching a row — which is why guessing it costs nothing. | The fallback list is full of pairs that read as unrelated on inspection (too long), or a fallback you remember making is absent (too short). |
 | **ANN tripwire threshold** (§6.2) | **`search_entities` p95 > 150 ms, over a trailing 7 days, minimum 50 logged queries** | The companion trigger is ~30–50k rows, whichever comes first. §6.2's honest magnitudes put exact scan in the ~10–20 ms range, so 150 ms is ~10× headroom — it will not false-fire, but it fires *before* anything is perceptible inside an LLM turn, which is the point: it should be a warning, not a symptom. The **window and minimum sample** are the load-bearing part — without them a cold-cache outlier or a quiet week fires it. | It fires, or the row trigger arrives first and latency is still flat — in which case raise it rather than removing it. |
 
 **None of these is in the epoch fingerprint.** They are operational tuning, not derivation rules: changing one must not invalidate the corpus. The confidence threshold is the closest call — it changes what extraction *records* — but §5.7 already establishes that a change is only meaningful paired with a re-run, which is the deliberate act, and §7.8's fingerprint reads named keys rather than hashing the file precisely so a tuning edit does not register as a rule change.
