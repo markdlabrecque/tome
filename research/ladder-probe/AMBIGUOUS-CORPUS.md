@@ -47,31 +47,90 @@ Three rules enforce the distinction:
   since governed every later case: both glossary definitions apply in full, which is the
   point. If a subject could not be traced to its device it was cut.
 
-The failure mode this does not fully escape is stated under "What this cannot answer".
+One failure mode survives partially and is stated under "What this cannot answer". The
+other — that ambiguous subjects are simply *longer* — is answered by design, below.
 
 ## Strata
 
 | stratum | n | what it is |
 |---|---|---|
 | `ambiguous` | 40 | five contested boundaries, 8 each |
-| `control` | 24 | unambiguous, freshly written; the within-draw baseline |
+| `control-matched` | 20 | unambiguous, **length- and shape-matched** to `ambiguous`. The baseline for the headline statistic |
+| `control` | 24 | unambiguous and short. Kept as the length-sensitivity contrast against `control-matched` |
 | `fence` | 16 | quarantined; two boundaries `prompt-fenced.txt` may resolve |
-| **total** | **80** | |
+| **total** | **100** | |
 
-**Why 80.** `run.py` draws 40 of 80 with `random.Random(seed).sample`, seeds 0–7. Keeping
-the total at 80 leaves the paired-draw machinery byte-identical to the ladder run, so seeds,
-draw sizes and the bootstrap all carry over unchanged.
+### Why the length match exists, and why it is a stratum rather than a rewrite
 
-**Why 24 controls.** Enough that every draw carries a usable baseline and not so many that
-the treatment stratum thins. Simulating `run.py`'s eight draws gives per-draw
-control/ambiguous/fence counts of **(13,20,7) (14,21,5) (9,20,11) (10,18,12) (10,24,6)
-(16,18,6) (12,21,7) (13,20,7)** — totals **97 / 162 / 61** across the eight. The thinnest
-draw carries 9 controls; that is the number to keep in mind when reading a single seed's
-separation, and the reason the statistic is pooled and paired rather than read per-draw.
+The ambiguity device *is* the second clause — an occurrence plus its lasting consequence, a
+ruling plus its subsequent pattern. Shortening the ambiguous subjects would delete the thing
+being measured. But that makes them structurally longer than short controls (measured:
+**17.18 words against 13.50**), so a separation read against the short controls alone is
+equally well explained by "the model hedges on long compound sentences". A reviewer would
+attack that first, and would be right to.
+
+`control-matched` removes the explanation by construction: 20 unambiguous subjects, two
+clauses each, matched on the word-count *distribution*, written in the same register. Their
+second clause is always a **further fact of the same kind** — never one of the five ambiguity
+devices. No "and every case since" on a Decision, no date-as-obligation on a Commitment, no
+lasting-state clause on an Event, no habit pinned to a named colleague on a Preference. A
+Person with two clauses is still unmistakably a Person.
+
+Measured from the file, all four strata:
+
+| stratum | n | mean | median | range | quartiles |
+|---|---|---|---|---|---|
+| `ambiguous` | 40 | **17.18** | 17.0 | 11–25 | 15.0 / 17.0 / 20.0 |
+| `control-matched` | 20 | **17.10** | 17.0 | 11–25 | 14.25 / 17.0 / 19.5 |
+| `control` | 24 | 13.50 | 13.5 | 8–18 | 11.25 / 13.5 / 15.75 |
+| `fence` | 16 | 13.19 | 13.0 | 10–17 | 12.0 / 13.0 / 14.75 |
+
+Mean within 0.1 words, identical median, identical range. The match is **asserted at import**
+(mean within 0.5, medians equal), as is the requirement that the short controls stay at least
+3 words shorter — because if that contrast collapsed, the length-sensitivity readout would go
+with it. Residual: the matched IQR is 5.25 against the ambiguous 5.0 but sits slightly lower
+(14.25–19.5 vs 15.0–20.0), so the matched stratum is a fraction less top-heavy. That is
+under a word at each quartile and is not the size of thing that explains a confidence gap.
+
+**Type mix is matched too**, at half scale, so answering the length confound does not import
+a type-mix confound in its place. `ambiguous` gold: Decision 9, Commitment 9, Preference 6,
+Person 5, Project 4, Fact 4, Event 3. `control-matched`: Decision 5, Commitment 4,
+Preference 3, Person 2, Project 2, Fact 2, Event 2 — every type within 0.5 of its half-scale
+target.
+
+### Why 100 rather than rebalancing to 80
+
+Holding 80 would mean cutting 20 subjects to make room. Every candidate cut costs something
+the probe needs: below 40, the ambiguous stratum loses its even 8-per-boundary coverage;
+below 16, the fence stratum stops supporting the relocation question; and taking the short
+controls down to single digits would delete the length contrast that justifies the matched
+stratum in the first place. Growing is the cheaper trade.
+
+What growing costs: a 40-subject draw now covers 40% of the corpus instead of 50%, so each
+subject appears in about 3.2 of the 8 draws rather than 4. Per-item confidence readings get
+thinner; the per-stratum statistic, which is what is being measured, does not.
+
+What it does **not** cost: `run.py` is untouched. `DRAW_N` stays 40 and the seeds stay 0–7,
+so the note handed to the model is the same size as the ladder run's — **3,760 characters per
+draw on average against 3,687 for the same eight seeds over `corpus.py`, a 2.0% increase** —
+and the 4,096-token output cap that produced the fourth amendment's degeneration is under no
+more pressure than before.
+
+Simulated per-draw composition (`random.Random(seed).sample(range(100), 40)`, seeds 0–7):
+
+| seed | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | total |
+|---|---|---|---|---|---|---|---|---|---|
+| `ambiguous` | 13 | 18 | 14 | 14 | 22 | 15 | 14 | 18 | **128** |
+| `control-matched` | 9 | 6 | 7 | 10 | 6 | 9 | 11 | 8 | **66** |
+| `control` | 12 | 10 | 10 | 7 | 7 | 9 | 10 | 8 | **73** |
+| `fence` | 6 | 6 | 9 | 9 | 5 | 7 | 5 | 6 | **53** |
+
+The thinnest cell is 5 (`fence`, seeds 4 and 6) and the matched stratum bottoms out at 6.
+Those are the numbers that make single-seed reading a mistake: the statistic is pooled across
+the eight paired draws, never read per-draw.
 
 **Why the controls are new subjects.** Re-using `corpus.py`'s would collide markers across
-the two files and make a mixed run unreadable. All 24 are written fresh, spread over all
-seven types (Person 4, Decision 4, Fact 4, Project 3, Preference 3, Commitment 3, Event 3).
+the two files and make a mixed run unreadable. All 44 control subjects are written fresh.
 
 ## Ground-truth shape
 
@@ -82,11 +141,14 @@ in **positions 0, 1, 2**:
 Subject(gold, marker, text, alt, verdict, stratum)
 ```
 
+The field names are `gold`, `marker`, `text`, `alt`, `verdict`, `stratum` — note that the
+first field is **`gold`, not `type`**; `type` appears nowhere in the tuple.
+
 - `gold` — the type to score as correct.
-- `alt` — the competing type. `None` only for controls.
+- `alt` — the competing type. `None` only in a control stratum.
 - `verdict` — `sole` (unambiguous), `leans` (`gold` is better, `alt` is defensible), or
   `tossup` (`gold` and `alt` are equally correct).
-- `stratum` — `control` | `ambiguous` | `fence`.
+- `stratum` — `control-matched` | `control` | `ambiguous` | `fence`.
 
 In the `fence` stratum `gold` records the reading the **fenced** prompt endorses, not a human
 lean; under `prompt.txt` those rows are plain toss-ups and `verdict` says `tossup`.
@@ -97,16 +159,21 @@ Positional access survives, so `SUBJECTS[i][2]` and `len(SUBJECTS)` are unchange
 | site | change |
 |---|---|
 | `run.py:11` | import `corpus_ambiguous` instead of `corpus`; nothing else in `run.py` touches the shape |
-| `analyze.py:122` | `for t, _, _ in subs` raises `ValueError`; use `s[0]`. Decision recall is meaningless on this corpus — the line only needs to stop crashing |
-| `analyze.py:153` | `[toks(t) for _, _, t in subs]` → `[toks(s[2]) for s in subs]` |
+| `analyze.py:122` | `for t, _, _ in subs` raises `ValueError`; use `for s in subs … s.gold`. Decision recall is meaningless on this corpus — the line only needs to stop crashing |
+| `analyze.py:153` | `[toks(t) for _, _, t in subs]` → `[toks(s.text) for s in subs]` |
 | `type_accuracy.py:36` | same substitution |
-| `type_accuracy.py:76` | correctness becomes three-valued: right if `got == gold`; also right if `verdict == "tossup"` and `got == alt`; **soft-wrong** if `verdict == "leans"` and `got == alt`; wrong otherwise |
+| `type_accuracy.py:76` | `subs[si][0]` still works; prefer `subs[si].gold`. Correctness becomes three-valued: right if `got == s.gold`; also right if `s.verdict == "tossup"` and `got == s.alt`; **soft-wrong** if `s.verdict == "leans"` and `got == s.alt`; wrong otherwise |
+| everywhere | every metric splits by `s.stratum`. A number pooled over this corpus is meaningless — the strata *are* the measurement |
 
 Two outcomes no committed scorer computes, and which this corpus exists to make scorable:
 
 - **Confidence separation** — mean and median `type_confidence` on `ambiguous` minus the
-  same on `control`, computed within each draw and paired across the eight seeds. A
-  separation indistinguishable from zero is evidence for **(a)**.
+  same on **`control-matched`**, computed within each draw and paired across the eight seeds.
+  A separation indistinguishable from zero is evidence for **(a)**. Report
+  `ambiguous − control` beside it: if the gap against the short controls is much the larger,
+  the surplus is length sensitivity rather than ambiguity sensitivity, and
+  `control-matched − control` measures that surplus directly on subjects whose type nobody
+  disputes.
 
   **Read `CRITERIA.md`'s fourth amendment before quoting a number from this.** The probe is
   not bit-reproducible: a control replication of an unchanged prompt moved `Event → Fact` by
@@ -119,7 +186,11 @@ Two outcomes no committed scorer computes, and which this corpus exists to make 
   counted, per the same amendment.
 - **Competitor naming** (#35 item 2) — for ambiguous rows, whether `considered_types`
   contains `alt`. Keep three counts apart: empty, non-empty but missing `alt`, and containing
-  `alt`. Only the third is the behavioural signal #35 proposes to promote.
+  `alt`. Only the third is the behavioural signal #35 proposes to promote. On
+  `control-matched` rows a non-empty `considered_types` is a **false positive** — same length,
+  same clause count, no contested type — which is the specificity half of the same
+  measurement, and the reason the matched stratum earns its place beyond answering the
+  length confound.
 
 Report the `fence` stratum in its own rows everywhere. It is not part of the separation
 statistic.
@@ -172,26 +243,38 @@ all 16 has been pushed, not taught.
 
 Run against the file as written, not against the intention:
 
-- **Marker uniqueness and cross-file disjointness** — 80 unique markers, asserted at import
-  against `corpus.py`'s 80 by importing them. A collision is an `AssertionError`, not a
-  review finding.
-- **Markers are literal tokens of their own text** — asserted. `corpus.py` does not
-  guarantee this (its Decision markers are slugs); this file does, so a future marker-based
-  coverage scorer will work without re-editing the corpus.
+Re-run in full after the matched stratum was added. Numbers are from the file as written, not
+from the intention:
+
+- **Marker uniqueness and cross-file disjointness** — **100 unique markers**, asserted at
+  import against `corpus.py`'s 80 by importing them. Collisions: **none**. A collision is an
+  `AssertionError`, not a review finding.
+- **Markers are literal tokens of their own text** — asserted, true for all 100. `corpus.py`
+  does not guarantee this (its Decision markers are slugs); this file does, so a future
+  marker-based coverage scorer will work without re-editing the corpus.
 - **No leakage from the prompts.** `prompt-fenced.txt`'s worked examples use a ticketing
   system and an office move. Diffing the two prompts and tokenising only the added lines
   (55 content words, `analyze.py`'s tokeniser and stoplist): **the maximum any subject shares
   with the added text is 2 content words** (`utc`, on "every" and "standing") — the same bar
-  the third amendment set for the prompt's own examples. Against the *whole* fenced prompt
-  the maximum is 5, all generic ("all", "between", "people", "scheduled", "them").
-  `foxglove`, `ticketing`, `switched`, `saturday`, `office`, `dundas`, `street`, `building`,
-  `april` appear **nowhere** in the corpus; an assert enforces it.
+  the third amendment set for the prompt's own examples, and unchanged by the 20 new
+  subjects. Against the *whole* fenced prompt the maximum is 5, all generic. `foxglove`,
+  `ticketing`, `switched`, `saturday`, `office`, `dundas`, `street`, `building`, `april`,
+  `forty` appear **nowhere** in the corpus; an assert enforces it.
 - **Within-file lexical separation.** `type_accuracy.py` pairs greedily on content-word
-  overlap at `COVER_T = 0.25`, so near-duplicate subjects would mis-pair. Maximum pairwise
-  overlap coefficient is **0.33**, with **12 of 3,160 pairs** at or above 0.25 — slightly
-  better than `corpus.py`'s own 0.43 and 13. Three subjects were reworded to get there.
-- **Every assert runs on import.** `python3 -c "import corpus_ambiguous"` is the whole
-  self-check.
+  overlap at `COVER_T = 0.25`, so near-duplicate subjects mis-pair. Maximum pairwise overlap
+  coefficient is **0.33** (`corpus.py`: 0.43), with **24 of 4,950 pairs** at or above 0.25
+  (`corpus.py`: 13 of 3,160). The raw count is not the comparable quantity, because only 40
+  subjects are drawn together: the expected number of ≥0.25 pairs *co-drawn in one draw* is
+  **3.8 here against 3.2 for `corpus.py`** — marginally worse, and the honest way to state
+  it. Four subjects were reworded after the first measurement (27 pairs, 4.3 co-drawn) to
+  get there; the residue is Decision subjects sharing "chose / rather / because", which is
+  the vocabulary the type is made of.
+- **Token budget.** 9,341 characters over 100 subjects. Because `DRAW_N` is still 40, the
+  note the model sees averages **3,760 characters per draw against 3,687** for the same eight
+  seeds over `corpus.py` — a 2.0% increase, well inside the margin the 4,096-token output cap
+  already had.
+- **Every assert runs on import**, including the length match and the type/stratum
+  invariants. `python3 -c "import corpus_ambiguous"` is the whole self-check.
 
 ## What this corpus cannot answer
 
@@ -199,18 +282,20 @@ In the register of `CRITERIA.md`'s section of the same name.
 
 - **It cannot prove the low confidence, if any, lands on the right items.** A separation
   between strata is consistent with a model that is uncertain about *something else*
-  correlated with ambiguity. Each subject appears in about half the draws, so per-item
-  confidence rests on roughly four observations per model — enough to eyeball, not enough to
+  correlated with ambiguity. Each subject appears in about 3.2 of the 8 draws, so per-item
+  confidence rests on roughly three observations per model — enough to eyeball, not enough to
   infer.
-- **It cannot rule out that the models are reacting to surface form.** The ambiguity device
-  usually produces a second coordinated clause, so ambiguous subjects are longer than
-  controls: **mean 101 characters against 83** (fence stratum 78). Nothing here separates
-  "sensitive to type ambiguity" from "sensitive to sentence complexity". A length-matched
-  control stratum would fix it and does not exist; if a separation is observed, this is the
-  first alternative explanation to attack, and the cheapest attack is a rerun with the
-  controls padded to matching length. *(The whole-corpus budget is unaffected: 7,290
-  characters against `corpus.py`'s 7,279, so a 40-subject draw costs the same prompt tokens
-  and carries the same degeneration risk as the ladder run — no more, no less.)*
+- **The length confound is answered, but not every surface confound is.** `control-matched`
+  removes sentence length, clause count and register from the list of alternative
+  explanations, and `control-matched − control` measures length sensitivity directly instead
+  of assuming it away. What survives is narrower and worth naming: the ambiguity devices
+  favour certain *constructions* — "and every X since", "and it is still", a temporal clause
+  bolted to a state — and the matched controls, while two-clause, do not reproduce those
+  constructions, because reproducing them is what creates ambiguity. So a model keying on
+  "sentence contains a consequence clause" rather than on the type contest would still
+  produce a separation. Distinguishing those two needs an adversarial stratum built the other
+  way round — the ambiguity constructions attached to subjects whose type is nonetheless
+  forced — and that stratum does not exist here.
 - **The ground truth is unadjudicated.** `gold`, `alt` and `verdict` are one author's
   judgments; no second reader has scored them. Human disagreement on these 40 is the
   instrument's own error bar and is currently unmeasured. A `leans` that two readers split on
@@ -218,7 +303,7 @@ In the register of `CRITERIA.md`'s section of the same name.
 - **It cannot set a threshold.** If separation is observed, its size is a property of *this*
   corpus's ambiguity, which is deliberately concentrated. §13.4's number cannot be read off
   it. The finding would be directional — "the signal exists" — and no more.
-- **It says nothing about the prevalence of ambiguity in real notes.** 40 of 80 is a design
+- **It says nothing about the prevalence of ambiguity in real notes.** 40 of 100 is a design
   parameter, not an estimate. §5.7's histogram shape under real usage stays unknown, and
   #35's item 3 — whether a near-constant `type_confidence` column earns its place — is not
   settled by anything measured here.
@@ -228,9 +313,10 @@ In the register of `CRITERIA.md`'s section of the same name.
   measurement. That may be the more consequential of the two knobs and it needs a different
   probe.
 - **The control baseline is not prompt-invariant.** The fenced prompt edits the `Fact`,
-  `Project` and `Event` definitions, and 10 of the 24 controls are of those types. Comparing
-  *separation* across the two prompt arms therefore carries a confound the quarantine does
-  not remove; comparing separation *within* one arm does not.
+  `Project` and `Event` definitions, and **16 of the 44 control subjects** are of those types
+  (10 of 24 short, 6 of 20 matched). Comparing *separation* across the two prompt arms
+  therefore carries a confound the quarantine does not remove; comparing separation *within*
+  one arm does not.
 - **It is still synthetic, and still not a judged set.** Same caveat as the ladder probe:
   §13.1's open question needs 90 days of real usage. A separation here licenses keeping the
   numeric route alive, not shipping a threshold.

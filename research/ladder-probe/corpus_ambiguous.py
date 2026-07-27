@@ -1,7 +1,8 @@
 """Deliberately ambiguous synthetic subject corpus for the enrichment probe (issue #35).
 
-80 blocks in three strata: 40 genuinely ambiguous subjects, 24 unambiguous controls, and
-16 quarantined subjects that sit on the two boundaries the #36 prompt fence touches.
+100 blocks in four strata: 40 genuinely ambiguous subjects, 20 unambiguous controls that are
+length- and shape-matched to them, 24 shorter unambiguous controls, and 16 quarantined
+subjects sitting on the two boundaries the #36 prompt fence touches.
 
 WHY IT EXISTS. The ladder probe emitted 626 entities and not one scored `type_confidence`
 below §13.4's 0.7 threshold (means 0.915 / 0.945 / 1.000 by model). `corpus.py` was written
@@ -11,6 +12,13 @@ the numeric route is unsalvageable; or (b) the corpus was too easy and the thres
 merely mis-set. This corpus is the instrument that separates them. The measurement is the
 *difference between strata within a draw* — not the absolute confidence on ambiguous items,
 which on its own says nothing.
+
+THE BASELINE IS `control-matched`, NOT `control`. Ambiguous subjects are two-clause and
+~17 words because their ambiguity device *is* the second clause. Measured against the short
+controls alone, any separation would be equally well explained by sentence complexity, so
+the primary comparison runs against 20 unambiguous subjects matched on word-count
+distribution, clause count and register. The short controls stay, because the difference
+between the two control sub-strata is itself the readout on length sensitivity.
 
 WHAT IT IS NOT FOR. It is not a recall corpus and not a replacement for `corpus.py`.
 Ground-truth types here are contested by construction, so `analyze.py`'s coverage,
@@ -51,7 +59,7 @@ class Subject(NamedTuple):
     marker   — distinctive lowercase token, unique across this file AND `corpus.py`, and
                (unlike `corpus.py`) always literally present in `text`. Asserted below.
     text     — the subject as it would appear in a note. One sentence.
-    alt      — the competing type a reader could defend. `None` only for the control stratum.
+    alt      — the competing type a reader could defend. `None` only in a control stratum.
     verdict  — "sole"   : unambiguous; `alt` is None.
                "leans"  : `gold` is better, `alt` is defensible. Emitting `alt` is a soft
                           error, not a hard one.
@@ -59,7 +67,12 @@ class Subject(NamedTuple):
                           In the `fence` stratum, `gold` additionally records the reading
                           `prompt-fenced.txt` endorses — under `prompt.txt` these are plain
                           toss-ups, and must be scored as such.
-    stratum  — "control" | "ambiguous" | "fence".
+    stratum  — "control-matched" : unambiguous, length- and shape-matched to `ambiguous`.
+                                   The baseline for the headline statistic.
+               "control"         : unambiguous and short. Kept as the length-sensitivity
+                                   contrast against `control-matched`.
+               "ambiguous"       : the treatment stratum, five contested boundaries.
+               "fence"           : quarantined, see below.
     """
     gold: str
     marker: str
@@ -75,26 +88,33 @@ class Subject(NamedTuple):
 #   run.py:11           `from corpus import SUBJECTS` -> `from corpus_ambiguous import ...`.
 #                       Nothing else in run.py touches the tuple shape.
 #   analyze.py:122      `for t, _, _ in subs` raises ValueError on a 6-field row.
-#                       -> `for s in subs` / `s[0]`. (Decision recall is meaningless on this
-#                       corpus anyway; the line only needs to stop crashing.)
-#   analyze.py:153      `[toks(t) for _, _, t in subs]` -> `[toks(s[2]) for s in subs]`.
+#                       -> `for s in subs ... s.gold`. (Decision recall is meaningless on
+#                       this corpus anyway; the line only needs to stop crashing.)
+#   analyze.py:153      `[toks(t) for _, _, t in subs]` -> `[toks(s.text) for s in subs]`.
 #   type_accuracy.py:36 same substitution.
-#   type_accuracy.py:76 `truth = subs[si][0]` already works, but correctness must become
-#                       three-valued: right if `got == gold`; also right if
-#                       `verdict == "tossup"` and `got == alt`; soft-wrong if
-#                       `verdict == "leans"` and `got == alt`; wrong otherwise.
+#   type_accuracy.py:76 `truth = subs[si][0]` still works but reads better as
+#                       `subs[si].gold`; correctness must become three-valued: right if
+#                       `got == s.gold`; also right if `s.verdict == "tossup"` and
+#                       `got == s.alt`; soft-wrong if `s.verdict == "leans"` and
+#                       `got == s.alt`; wrong otherwise.
+#   everywhere          every metric splits by `s.stratum`. A pooled number over this corpus
+#                       is meaningless — the strata are the measurement.
 #
 # NEW OUTCOMES this corpus makes scorable, neither of which any committed scorer computes:
 #   - confidence separation: mean/median `type_confidence` on `ambiguous` minus the same on
-#     `control`, computed *within each draw* and then paired across the 8 seeds. This is the
-#     #35 measurement. A separation indistinguishable from zero is evidence for (a).
+#     `control-matched`, computed *within each draw* and then paired across the 8 seeds.
+#     This is the #35 measurement. A separation indistinguishable from zero is evidence for
+#     (a). Report `ambiguous` - `control` alongside it: if that gap is much the larger, the
+#     surplus is length sensitivity, not ambiguity sensitivity.
 #     CRITERIA.md's FOURTH amendment applies: this box is not bit-reproducible, so establish
 #     a control-vs-control noise floor from a repeated run before reading the separation,
 #     and exclude-and-count degenerate draws rather than pooling them.
 #   - competitor naming (#35 item 2): for ambiguous rows, whether `considered_types`
 #     contains `alt`. Three counts worth keeping apart — `considered_types` empty, non-empty
 #     but missing `alt`, and containing `alt`. The last is the behavioural signal #35
-#     proposes to use instead of the numeric one.
+#     proposes to use instead of the numeric one. On `control-matched` rows a non-empty
+#     `considered_types` is a false positive, which is the specificity half of the same
+#     measurement and is why the matched stratum is not merely a length control.
 # Report the `fence` stratum separately from `ambiguous` in every table. It is not part of
 # the confidence-separation statistic.
 # ---------------------------------------------------------------------------------------
@@ -306,7 +326,7 @@ SUBJECTS = [
             "The Ashenmoor cluster has sixty-four cores across eight nodes.",
             None, "sole", "control"),
     Subject("Fact", "corrindale",
-            "There are three hundred and twelve tables in the Corrindale schema.",
+            "The Corrindale schema has three hundred and twelve tables.",
             None, "sole", "control"),
     Subject("Fact", "bexhaven",
             "The Bexhaven licence covers up to fifty seats.",
@@ -336,6 +356,97 @@ SUBJECTS = [
     Subject("Event", "merribeck",
             "The Merribeck quarterly briefing happened on the ninth and overran badly.",
             None, "sole", "control"),
+
+    # =====================================================================================
+    # STRATUM: control-matched (20) — unambiguous, but LENGTH- AND SHAPE-MATCHED to the
+    # ambiguous stratum. Answers the confound the short controls cannot: ambiguous subjects
+    # are two-clause and ~17 words because their ambiguity device *is* the second clause,
+    # so a separation against the short controls is equally well explained by sentence
+    # complexity. These are two-clause, same word-count distribution, same register — and
+    # their type is not in question. A Person with two clauses is still plainly a Person.
+    #
+    # Type mix mirrors the ambiguous stratum's `gold` mix at half scale, so answering the
+    # length confound does not import a type-mix confound in its place.
+    #
+    # Construction rule: the second clause must be a *further fact of the same kind*, never
+    # one of the five ambiguity devices. So no "and every case since" on a Decision (that is
+    # the Decision/Preference device), no date-as-obligation on a Commitment, no lasting-state
+    # clause on an Event, no habit attached to a named colleague on a Preference.
+    # =====================================================================================
+
+    # --- Person (2) ---
+    Subject("Person", "tavenport",
+            "Yusra Tavenport runs the vendor security questionnaires and came from an audit background.",
+            None, "sole", "control-matched"),
+    Subject("Person", "lomholt",
+            "Edvard Lomholt maintains the release tooling and holds the only commit rights to the production deployment repository.",
+            None, "sole", "control-matched"),
+
+    # --- Project (2) ---
+    Subject("Project", "blackthorn",
+            "Blackthorn is the effort to replace the notification service, and it is currently blocked on a capacity review.",
+            None, "sole", "control-matched"),
+    Subject("Project", "grindlow",
+            "Grindlow is the effort to bring the archive tier under the same access controls as the rest of the estate, and it is barely started.",
+            None, "sole", "control-matched"),
+
+    # --- Preference (3) ---
+    Subject("Preference", "shallow",
+            "Consistently prefers a shallow call stack to a deep one, and will inline a small helper rather than nest it.",
+            None, "sole", "control-matched"),
+    Subject("Preference", "flags",
+            "Has a standing preference for feature flags over long-lived branches, and treats any branch older than a week as debt.",
+            None, "sole", "control-matched"),
+    Subject("Preference", "spreadsheet",
+            "Prefers a spreadsheet to a bespoke tool, and rarely regrets it.",
+            None, "sole", "control-matched"),
+
+    # --- Decision (5) ---
+    Subject("Decision", "tellwright",
+            "Chose Tellwright over the incumbent scheduler after a bake-off, because its backfill semantics were easier to reason about.",
+            None, "sole", "control-matched"),
+    Subject("Decision", "ombersley",
+            "Decided to rewrite the Ombersley parser rather than patch it, because the grammar had drifted.",
+            None, "sole", "control-matched"),
+    Subject("Decision", "halvergate",
+            "Capped the Halvergate worker pool at sixty instead of autoscaling it, since the burst pattern was predictable.",
+            None, "sole", "control-matched"),
+    Subject("Decision", "nethercott",
+            "Decided to keep Nethercott on the older runtime, because upgrading needs a driver rebuild.",
+            None, "sole", "control-matched"),
+    Subject("Decision", "skerrivore",
+            "Decided to expose the Skerrivore metrics as a flat namespace, not a nested one, since every dashboard that consumes them is already flat.",
+            None, "sole", "control-matched"),
+
+    # --- Commitment (4) ---
+    Subject("Commitment", "farrowmere",
+            "Owes the Farrowmere group a written answer on the retention question and has not started drafting it.",
+            None, "sole", "control-matched"),
+    Subject("Commitment", "lintwaithe",
+            "Promised to hand over the Lintwaithe credentials before going on leave, and nothing has been handed over.",
+            None, "sole", "control-matched"),
+    Subject("Commitment", "cawdrey",
+            "Undertook to take the Cawdrey deprecation notice through legal review, and has not yet put it in front of them.",
+            None, "sole", "control-matched"),
+    Subject("Commitment", "threlkeld",
+            "Committed to producing a written migration plan for Threlkeld, and it is still an outline nobody has seen.",
+            None, "sole", "control-matched"),
+
+    # --- Fact (2) ---
+    Subject("Fact", "dorrance",
+            "The Dorrance tier holds about nine terabytes, and roughly a third of that has never been read.",
+            None, "sole", "control-matched"),
+    Subject("Fact", "windlestraw",
+            "The Windlestraw account has four hundred seats, about two hundred of them active.",
+            None, "sole", "control-matched"),
+
+    # --- Event (2) ---
+    Subject("Event", "ashperton",
+            "The Ashperton review ran a full day last month and ended without anyone writing anything down.",
+            None, "sole", "control-matched"),
+    Subject("Event", "cranmoor",
+            "The Cranmoor drill started at six and was abandoned after the second step.",
+            None, "sole", "control-matched"),
 
     # =====================================================================================
     # STRATUM: fence (16) — QUARANTINED. These straddle Event/Fact and Project/Event, the
@@ -404,8 +515,12 @@ SUBJECTS = [
 # Index lists the scorers need. Strata are contiguous above, but derive them anyway so a
 # later insertion cannot silently break the split.
 CONTROL_INDICES = [i for i, s in enumerate(SUBJECTS) if s.stratum == "control"]
+MATCHED_INDICES = [i for i, s in enumerate(SUBJECTS) if s.stratum == "control-matched"]
 AMBIGUOUS_INDICES = [i for i, s in enumerate(SUBJECTS) if s.stratum == "ambiguous"]
 FENCE_INDICES = [i for i, s in enumerate(SUBJECTS) if s.stratum == "fence"]
+# Both control sub-strata pooled. Use this only for a coarse baseline; the headline
+# comparison is ambiguous vs. `control-matched`, which is the length-matched one.
+ALL_CONTROL_INDICES = sorted(CONTROL_INDICES + MATCHED_INDICES)
 
 # Unordered {gold, alt} boundary -> count. Used by AMBIGUOUS-CORPUS.md's coverage table.
 PAIR_COUNTS = {}
@@ -423,15 +538,17 @@ _PROMPT_EXAMPLE_TOKENS = frozenset(
 
 TYPES = {"Person", "Project", "Preference", "Decision", "Fact", "Commitment", "Event"}
 VERDICTS = {"sole", "leans", "tossup"}
-STRATA = {"control", "ambiguous", "fence"}
+STRATA = {"control", "control-matched", "ambiguous", "fence"}
+CONTROL_STRATA = {"control", "control-matched"}
 
-assert len(SUBJECTS) == 80, len(SUBJECTS)
+assert len(SUBJECTS) == 100, len(SUBJECTS)
 assert len(AMBIGUOUS_INDICES) == 40, len(AMBIGUOUS_INDICES)
 assert len(CONTROL_INDICES) == 24, len(CONTROL_INDICES)
+assert len(MATCHED_INDICES) == 20, len(MATCHED_INDICES)
 assert len(FENCE_INDICES) == 16, len(FENCE_INDICES)
 
 _markers = {s.marker for s in SUBJECTS}
-assert len(_markers) == 80, "markers must be unique within this file"
+assert len(_markers) == 100, "markers must be unique within this file"
 _collide = _markers & {m for _, m, _ in _UNAMBIGUOUS}
 assert not _collide, f"markers collide with corpus.py: {sorted(_collide)}"
 
@@ -442,11 +559,15 @@ for _s in SUBJECTS:
     assert _s.marker == _s.marker.lower() and _s.marker.isalpha(), _s
     # unlike corpus.py, every marker is a literal token of its own subject text
     assert _s.marker in _s.text.lower(), _s
-    if _s.stratum == "control":
+    if _s.stratum in CONTROL_STRATA:
         assert _s.alt is None and _s.verdict == "sole", _s
     else:
         assert _s.alt in TYPES and _s.alt != _s.gold, _s
         assert _s.verdict in {"leans", "tossup"}, _s
+    # the matched sub-stratum only earns its name if it is actually two-clause and long
+    if _s.stratum == "control-matched":
+        assert len(_s.text.split()) >= 11, _s
+        assert "," in _s.text or " and " in _s.text, _s
     if _s.stratum == "fence":
         assert _s.verdict == "tossup", _s
         assert {_s.gold, _s.alt} in ({"Event", "Fact"}, {"Project", "Event"}), _s
@@ -469,4 +590,19 @@ for _i in FENCE_INDICES:
     _fence_pairs[_k] = _fence_pairs.get(_k, 0) + 1
 assert sorted(_fence_pairs.values()) == [8, 8], _fence_pairs
 
+# The length match is the whole point of `control-matched`, so it is asserted, not trusted.
+# Mean within 0.5 words and identical median against the ambiguous stratum.
+_amb_w = sorted(len(SUBJECTS[_i].text.split()) for _i in AMBIGUOUS_INDICES)
+_mat_w = sorted(len(SUBJECTS[_i].text.split()) for _i in MATCHED_INDICES)
+_mean = lambda v: sum(v) / len(v)                                            # noqa: E731
+_median = lambda v: (v[len(v) // 2] if len(v) % 2 else                       # noqa: E731
+                     (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
+assert abs(_mean(_amb_w) - _mean(_mat_w)) <= 0.5, (_mean(_amb_w), _mean(_mat_w))
+assert _median(_amb_w) == _median(_mat_w), (_median(_amb_w), _median(_mat_w))
+# and the short controls must stay measurably shorter, or the contrast between the two
+# control sub-strata carries no information about length sensitivity
+_ctl_w = sorted(len(SUBJECTS[_i].text.split()) for _i in CONTROL_INDICES)
+assert _mean(_amb_w) - _mean(_ctl_w) >= 3.0, (_mean(_amb_w), _mean(_ctl_w))
+
 del _s, _i, _k, _markers, _collide, _words, _amb_pairs, _fence_pairs
+del _amb_w, _mat_w, _ctl_w, _mean, _median
