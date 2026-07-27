@@ -72,9 +72,12 @@ wording with the trade accepted explicitly.
 > **Ratified as Option A and applied.** Kept below as the record of what was decided and why, plus two further references the ratification turned up: `Type Override`'s discriminator (which cited the deleted threshold) and `Derivation Epoch`'s input list (which named it as a recorded input). Both were corrected in the same pass.
 
 Enrichment no longer writes Type Suggestions. Both kinds failed, for different reasons, and
-the reasoning is in PRD §3.9: `Ambiguous` had no reachable trigger (0 of ~2,350 entities below
-the 0.7 threshold; `considered_types` empty on ~2,950 entities across three wordings and two
-models), and `No fit` is unreachable **by construction** — it fires when a subject fits no
+the reasoning is in PRD §3.9: `Ambiguous`'s two candidate triggers both failed, though not in
+the same way — the confidence half is unreachable (0 of ~2,350 entities below the 0.7
+threshold) while `considered_types` is reachable and uninformative (13.9% fire rate under the
+shipped fenced prompt, 4.7% precision against a 2.3% base error rate; the earlier "empty on
+~2,950 entities" is withdrawn — see `ladder-probe/CONFIDENCE-FINDINGS.md` §2). `No fit` is
+unreachable **by construction** — it fires when a subject fits no
 type, while `Fact` is *defined* as the type for whatever fits no other type. A designed
 catch-all and a missing-type detector cannot coexist.
 

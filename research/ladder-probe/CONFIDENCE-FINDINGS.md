@@ -69,6 +69,49 @@ supposed to express stays within ±0.014, is not carrying information about the 
 
 ## 2. `considered_types` is never populated, across three wordings
 
+> ### ⚠ Correction, 2026-07-27 — this section's *heading and prose are withdrawn*. Its verdict is not.
+>
+> **`considered_types` is populated.** On `corpus.py` with the shipped fenced prompt at `qwen3:14b`
+> it is non-empty on **13.9%** of paired entities (129 of 930, three replicates) — three times the
+> highest rate reported below, and on the corpus production would actually resemble. Reproduce with
+> `considered_types_precision.py`; cross-checked against the raw text by substring count (43
+> non-empty against 614 empty in `raw-fenced.jsonl`) rather than trusting the parser.
+>
+> Two errors compounded here, and both are the same shape as the ones this study was written to
+> avoid:
+>
+> 1. **The prose contradicts the table directly below it.** The table reports 12 fires in 14b
+>    fenced/gated and 3 in 4b control/gated. "The field is empty on all of them" was never true of
+>    this section's own data — the "15 of ~2,350" figure *is* those fires.
+> 2. **Scope was never stated.** Every arm below runs `corpus_ambiguous`. The ladder corpus was
+>    not examined, and it is where the field actually fires.
+>
+> **The fires are also not random**: they land on the fence boundaries — Fact/Event 16,
+> Preference/Decision 10, Commitment/Event 9, Decision/Preference 7 — at confidences of 0.9–0.95,
+> i.e. **above** the 0.7 gate the prompt conditions them on. So the claim that the gate made
+> population unobservable is wrong too: the model populates the field while ignoring the gate.
+>
+> ### Why the verdict survives anyway — and is better supported than it was
+>
+> The right question was never asked: does firing predict a misclassification? It does not.
+>
+> | | misclassified | correct |
+> |---|---|---|
+> | **fired** | 6 | 123 |
+> | **empty** | 15 | 786 |
+>
+> Precision **4.7%** against a base error rate of **2.3%** — a 2.06× lift — while recall is
+> **28.6%**, missing 15 of 21 errors. And the six hits are **two distinct subjects** replicated
+> three times (`okonjo`, `team-restructure`); the corpus is deterministic on this prompt, so three
+> copies of one hit are one hit. Against 2 caught it misses 3 distinct misclassified subjects, and
+> on one of the two it named `Event` where the truth was `Person` — so even when it fires on a real
+> error the alternative it offers is not necessarily the right type.
+>
+> **129 fires to surface 2 errors, on an n of 2.** So `considered_types` is not adoptable — not
+> because it is silent, but because it is **noisy and uninformative**, which is a stronger result
+> than the one this section claimed. #35's decision to drop the column is unchanged.
+
+
 | arm | paired entities | non-empty `considered_types` |
 |---|---|---|
 | 14b control, gated | 280 / 318 | 0 / 0 |
