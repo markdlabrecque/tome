@@ -332,3 +332,44 @@ constrained, all on this box back to back:
 **What this cannot become:** three replicates is enough to see whether an effect clears the
 noise floor. It is not enough to put a confidence interval on the effect size, and no
 interval derived from it should be quoted as though it were.
+
+---
+
+# Fifth amendment: determinism is model-dependent, so the replicate counts differ per arm
+
+**Written before the fence result was reported.** The fourth amendment said the probe is not
+reproducible. That is true of `qwen3:14b` and **false of `qwen3:4b`**, and the difference
+changes how many independent observations each arm actually has.
+
+Hashing the response payloads of every replicate:
+
+| arm | condition | distinct payloads across 3 replicate files |
+|---|---|---|
+| `qwen3:14b` | control | **3 of 3** |
+| `qwen3:14b` | fenced | **3 of 3** |
+| `qwen3:4b` | control | **2 of 3** (`raw-control-4b-r2` and `-r3` are byte-identical) |
+| `qwen3:4b` | fenced | **1 of 3** (all three byte-identical) |
+
+`qwen3:4b` reproduces bit-exactly within a session; `qwen3:14b` does not, on the same box,
+same options, minutes apart. Plausibly the larger model's layer split or reduction order
+varies across loads in a way the smaller one's does not — but the cause is not measured here
+and should not be asserted.
+
+**Consequences, stated rather than buried:**
+
+1. **At `qwen3:14b` the design works as intended.** Three independently generated runs per
+   condition. Their aggregate metrics happen to coincide exactly in the fenced condition,
+   which looks like duplication and is not: the per-seed `(entity_type, natural_key)`
+   signatures differ on 3 of 8 seeds. Independent draws landing on the same totals.
+2. **At `qwen3:4b` replication within a session is uninformative.** Re-running cannot
+   produce a new observation, so the fenced condition rests on **one** independent
+   observation and the control on **two** — `raw.jsonl` from the earlier session
+   (`Event → Fact` 8) and tonight's (10). Those two are the only available estimate of that
+   arm's run-to-run spread, and two counts is not a noise floor.
+3. **More 4b replicates would be theatre.** Genuine independence there needs the server
+   restarted between runs, which requires privileges this harness does not have, or a config
+   change, which breaks comparability. Neither is worth it: the 4b arm is not the shipping
+   model, and its effect size is far larger than its observed spread.
+
+**So the 4b result is reported as directional and the 14b result as measured.** Any future
+run of this probe should hash payloads before treating replicate count as sample size.
