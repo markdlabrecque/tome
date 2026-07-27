@@ -138,7 +138,71 @@ and still never store it. The storage decision is untouched either way — nothi
 else measured in this study. This is the branch `CONTEXT-PROPOSALS.md` §1 reserved for "accuracy
 drops"; accuracy rose instead, but the branch's logic applies to the metric that actually moved.
 
-## 5. What none of this can support
+## 5. Paired per-draw bootstrap — and it overturns §3
+
+Everything above compares *replicates*, which on 0.32.4 are bit-identical and therefore useless.
+But replicates were never the intended replication unit. `macos-spike-inference.md` §19.9.5
+pre-registered the right one:
+
+> Get replicates from the corpus, not from the sampler: draw 8 different random 40-subject
+> subsets from the 80 blocks, and run the identical 8 draws through every model arm. […] Report
+> the paired per-draw difference against the 14b arm with a bootstrap 95% CI.
+
+`run.py`'s `draw(seed)` is identical across arms, so the **8 draws are paired**. `paired_bootstrap.py`
+reports every claim as a mean paired difference with a percentile bootstrap 95% CI (20,000
+resamples) and the minimum effect the design could detect at 80% power.
+
+**One difference in the entire study resolves. One.**
+
+| comparison | metric | mean Δ | 95% CI | resolved? | MDE (80%) |
+|---|---|---|---|---|---|
+| control − fenced | `Event→Fact`/draw | +0.50 | [−0.12, +1.12] | **no** | ±0.95 |
+| control − fenced | type accuracy | −0.61 pp | [−1.63, +0.66] | **no** | ±1.85 pp |
+| control − fenced | coverage | −0.31 pp | [−1.25, +0.62] | **no** | ±1.64 pp |
+| arm1 − fenced | coverage | **+0.00 pp** | [0.00, 0.00] | **identical** | ±0.00 |
+| arm1 − fenced | `Commitment→Decision`/draw | **+0.00** | [0.00, 0.00] | **identical** | ±0.00 |
+| arm1 − fenced | type accuracy | +0.34 pp | [−0.64, +1.34] | **no** | ±1.68 pp |
+| **arm2 − fenced** | **coverage** | **−3.44 pp** | **[−7.19, −0.62]** | **YES** | ±5.30 pp |
+| arm2 − fenced | type accuracy | +0.97 pp | [−1.29, +3.95] | **no** | ±4.29 pp |
+
+**§3's conclusion is withdrawn. Arm 1 did not recover coverage — it is byte-for-byte identical to
+the fenced arm on coverage and on `Commitment → Decision`, across all 8 draws.** The apparent
+98.8% → 99.1% recovery was **one subject out of 320**, and it exists only under the wrong metric.
+
+### The coverage metric was inflated, and it took #36's second finding with it
+
+`analyze.py`'s `covered` is **many-to-one**: for each subject it finds that subject's best entity
+and increments the count, and `matched_ents` is used only for the `fabricated` tally — it never
+stops one entity from covering several subjects. `type_accuracy.pair()` is one-to-one and greedy.
+The two disagree, and the disagreement is the whole of #36's coverage claim:
+
+| pre-upgrade, 14b, 3 replicates | one-to-one | many-to-one |
+|---|---|---|
+| control | 96.98% | 98.44% |
+| fenced | 96.88% | 97.50% |
+| **the fence's coverage cost** | **0.10 pp** (1 subject / 960) | 0.94 pp |
+
+**Nine-tenths of the fence's measured recall cost was one entity being credited with covering
+several subjects.** This is the *same defect* the traps list already records — *"letting one
+emitted entity match several subjects lets a missing entity score as a wrong one — cost: the
+entire Person finding in #36"* — claiming a second finding on the same ticket.
+
+### Consequence for the `Fact` wording: revert to the measured sentence
+
+`CONTEXT-PROPOSALS.md` §1 rewrote *"Choose Fact only after every other type has been ruled out"*
+because it was the prime suspect for a 0.9 pp coverage cost. **That cost was 0.1 pp, so the
+rewrite was solving an artifact**, and the ablation gives the new wording no advantage over the
+measured one on any metric — two of them are exactly identical. The pre-registered rule said
+revert if the prediction failed; it failed, and the reason it failed is that there was nothing to
+fix. **`CONTEXT.md` carries the measured wording.**
+
+### What would resolve `Event→Fact`
+
+MDE scales as 1/√n. At n=8 the bound is ±0.95 errors/draw against an observed 0.50, so the design
+is underpowered by roughly 2×. Resolving a 0.5/draw effect needs **n ≈ 36 paired draws**
+(8 × (0.95/0.45)²) — about 37 min per condition, ~75 min for control + fenced.
+
+## 6. What none of this can support
 
 - **No claim of the form "X and Y do not overlap."** Zero variance in all four conditions.
 - **No claim that a 1–3 subject difference is real.** n = 80 subjects, one observation each.

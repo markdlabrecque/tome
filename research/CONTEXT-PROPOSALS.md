@@ -13,7 +13,10 @@ changes to it. Both are written in the glossary's own register and **neither is 
 
 ## 1. #36 — the `_Avoid_` fence ✅ APPLIED
 
-> **Applied 2026-07-27 with the rewritten `Fact` wording, after the ablation below was run.**
+> **Applied 2026-07-27 with the MEASURED `Fact` wording. The rewrite proposed below is
+> withdrawn** — the coverage cost it existed to fix was a scoring artifact. See "the rewrite is
+> withdrawn" at the end of this block.
+>
 > Kept as the record of what was decided. Three amendments the ablation forced:
 >
 > 1. **The numbers in the paragraph below are pre-upgrade and not directly comparable to
@@ -28,12 +31,31 @@ changes to it. Both are written in the glossary's own register and **neither is 
 >    deduplicated, the fenced condition mistypes *fewer* distinct `Commitment` subjects than the
 >    control (2 vs 3) while routing more of a smaller error set to `Decision`.
 >
-> **The prediction that justified the rewrite half-held, and the half that held is the one that
-> mattered.** Coverage recovered *exactly* to the control's 99.1% (from 98.8%), so the gate clause
-> **was** the mechanism behind the fence's recall cost — which is what the rewrite was for.
-> `Commitment → Decision` did **not** fall back, so the clause was **not** its mechanism and that
-> increase has no identified cause. Type accuracy was no worse (96.8% → 97.1%). Full result:
-> [`ladder-probe/ABLATION-FINDINGS.md`](./ladder-probe/ABLATION-FINDINGS.md).
+> ### The rewrite is withdrawn — it was solving a scoring artifact
+>
+> **Neither half of the prediction held, and the reason is that there was nothing to fix.**
+>
+> `analyze.py`'s coverage counter is **many-to-one** — it credits each subject with its best
+> entity and never stops one entity covering several subjects. `type_accuracy.pair()` is
+> one-to-one. Re-scoring the pre-upgrade fence study both ways:
+>
+> | pre-upgrade, 14b, 3 reps | one-to-one | many-to-one |
+> |---|---|---|
+> | control | 96.98% | 98.44% |
+> | fenced | 96.88% | 97.50% |
+> | **the fence's coverage cost** | **0.10 pp** (1 subject / 960) | 0.94 pp |
+>
+> **The 0.9 pp recall cost that made the measured `Fact` sentence a suspect was 0.1 pp.** Nine
+> tenths of it was one entity being credited several times — the same defect the traps list
+> already blames for "the entire Person finding in #36", claiming a second finding on this ticket.
+>
+> And the ablation gives the rewrite no advantage. Paired per-draw bootstrap, n=8, against the
+> fenced arm: coverage **+0.00 pp [0.00, 0.00]** and `Commitment → Decision` **+0.00 [0.00, 0.00]**
+> — byte-for-byte identical on every draw. Type accuracy +0.34 pp [−0.64, +1.34], not resolved.
+>
+> So the pre-registered fallback applies: **the measured wording ships**, and the recall trade it
+> was accused of costing is 1 subject in 960 rather than something to accept. Full result:
+> [`ladder-probe/ABLATION-FINDINGS.md`](./ladder-probe/ABLATION-FINDINGS.md) §5.
 
 Measured at `qwen3:14b` over three independent replicates per condition: `Event → Fact`
 **4.7 [3–6] → 1.0**, real misclassifications **10.0 → 7.0**, type accuracy **96.8% → 97.7%**,

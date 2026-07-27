@@ -68,7 +68,7 @@ A specific one-off choice that was made, and why.
 _Avoid_: Preference (see above)
 
 **Fact**:
-A standalone piece of knowledge that doesn't fit another Entity Type. Deliberately kept small and generic — a catch-all, not a default. When a subject fits Fact and also fits another Entity Type, choose the other type.
+A standalone piece of knowledge that doesn't fit another Entity Type. Deliberately kept small and generic — a catch-all, not a default. Choose Fact only after every other Entity Type has been ruled out.
 _Avoid_: Event (an Event happened or will happen at a point in time; a Fact is a standing
 state with no occurrence)
 
