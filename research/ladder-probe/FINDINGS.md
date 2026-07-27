@@ -21,6 +21,24 @@ decoding configurations.** Each smaller model works in exactly one and fails in 
 
 | model | grammar-constrained (`format: "json"`) | unconstrained |
 |---|---|---|
+> ### ⚠ Every coverage percentage below is 1.2–1.9 pp too high (corrected 2026-07-27)
+>
+> They come from `analyze.py`'s `covered` counter, which is **many-to-one**: it credits each
+> subject with its best entity and never stops one entity covering several, because
+> `matched_ents` feeds only the `fabricated` tally. `type_accuracy.pair()` is one-to-one.
+>
+> | | published (many-to-one) | corrected (one-to-one) |
+> |---|---|---|
+> | `qwen3:14b` constrained | 99.1% | **97.8%** |
+> | `qwen3:4b` constrained | 92.5% | **90.6%** |
+> | `qwen3:14b` unconstrained | 98.4% | **96.9%** |
+> | `qwen3:4b` no-entity rate | 7.5% | **9.4%** |
+>
+> **The ladder's verdict is unaffected** — the 14b-vs-4b gap is 7.2 pp one-to-one against
+> 6.6 pp many-to-one, so `qwen3:14b` still wins by the same margin, and the `8b` rung is
+> unusable either way. Only the absolute values move. The tables below are left as the record
+> of what was published; do not cite them without this block.
+
 | `qwen3:14b` | ✅ 1.01 ent/subj, 99.1% coverage | ✅ 0.97 ent/subj, 98.4% coverage |
 | `qwen3:8b` | ❌ degenerates on 3/8 draws | ⚠️ 5/8 clean, 3/8 malformed → 1 entity recovered |
 | `qwen3:4b` | ✅ 0.95 ent/subj, 92.5% coverage | ❌ 0/8 — reasoning preamble, hits the cap |

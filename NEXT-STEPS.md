@@ -88,7 +88,9 @@ What `source` records when client info is absent, whether the column earns its p
 
 ⚠ **One caveat in the Mac report is wrong, and it matters.** It states Fedora lacked `OLLAMA_FLASH_ATTENTION=1` and `OLLAMA_KV_CACHE_TYPE=q8_0`, and concludes every Mac-vs-Fedora ratio in the project is therefore not a pure hardware comparison. **Verified on this box: Fedora has both**, in `/etc/systemd/system/ollama.service.d/90-pi-local-rocm.conf`, mtime **2026-07-22** — before any benchmarking in this project. The flags are common to both machines and the comparison stands. The warm ratio does overshoot #32's projected 1.83–2.22× band at 2.43×, but that needs a different explanation.
 
-**Ladder probe (8 paired draws of 40):** `qwen3:14b` 1.01 ent/subj, 99.1% coverage, 41 tok/s. `qwen3:4b` 0.95, 92.5%, 95 tok/s, **7.5% of subjects produce no entity**. `qwen3:8b` worst rung, unusable in both decoding configs.
+**Ladder probe (8 paired draws of 40):** `qwen3:14b` 1.01 ent/subj, **97.8%** coverage, 41 tok/s. `qwen3:4b` 0.95, **90.6%**, 95 tok/s, **9.4% of subjects produce no entity**. `qwen3:8b` worst rung, unusable in both decoding configs.
+
+⚠ **Those coverage figures are corrected (2026-07-27) and every earlier statement of them is 1.2–1.9 pp too high.** The published 99.1% / 92.5% / 7.5% came from `analyze.py`'s many-to-one `covered` counter; the values above are one-to-one via `type_accuracy.pair()`. **The model choice is unaffected** — the 14b-vs-4b gap is 7.2 pp one-to-one against 6.6 pp many-to-one, so 14b still wins by the same margin — but `research/ladder-probe/FINDINGS.md`'s tables still carry the inflated numbers and have not been rewritten. **This matcher has now cost three findings** (#36's Person finding, #36's fence coverage cost, and these figures); assume any coverage number in this repo is inflated until you see which matcher produced it.
 
 **The fence (#36), `qwen3:14b`, three independent runs per condition:** `Event → Fact` **4.7 [3–6] → 1.0**, ranges non-overlapping; type accuracy **96.8% → 97.7%**; coverage **98.4% → 97.5%**. At `qwen3:4b` (directional only — see traps): `Event → Fact` 9.3 → 2.0, accuracy 91.1% → 92.6%.
 
