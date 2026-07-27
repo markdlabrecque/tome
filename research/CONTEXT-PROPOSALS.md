@@ -1,8 +1,10 @@
-# Proposed `CONTEXT.md` changes — for ratification, deliberately not applied
+# `CONTEXT.md` changes — both applied 2026-07-27
 
 `CONTEXT.md` is the source the extraction prompt is built from and the project's domain
-vocabulary, so wording here is a domain call rather than a spec call. Two open tickets want
-changes to it. Both are written in the glossary's own register and **neither is applied.**
+vocabulary, so wording here is a domain call rather than a spec call. Two tickets wanted
+changes to it. Both are written in the glossary's own register, and **both are now applied** —
+see the status table below, the per-section banners, and *Ratification* at the end for exactly
+what landed and what the "ratified" stamps do and do not mean.
 
 | # | change | status |
 |---|---|---|
@@ -163,8 +165,24 @@ closed tickets, so a reader meeting it in the archive gets no pointer saying it 
 
 ## Ratification
 
-**#35: done** — Option A, applied 2026-07-27.
+**#35: closed** — Option A, applied 2026-07-27.
 
-**#36: open, and blocked on the ablation rather than on a judgement.** The diff in §1 goes in as
-written *if* the rewritten `Fact` clause holds coverage; if it does not, the choice reverts to
-the measured phrasing with the recall cost accepted explicitly.
+**#36: closed.** The ablation resolved it *against* the rewrite: the 0.9 pp coverage cost that
+made the measured `Fact` sentence a suspect was a scoring artifact worth 0.10 pp (§1), so the
+pre-registered fallback applied and **the measured wording shipped** rather than the diff above.
+
+**What actually landed in `CONTEXT.md`:** `_Avoid_: Event` on **`Project`** and on **`Fact`**;
+the *"A completed occurrence remains an Event; it does not become a Fact once it is over"*
+clause on **`Event`**; `Fact` keeping its **measured** sentence (*"Choose Fact only after every
+other Entity Type has been ruled out"*), not the withdrawn rewrite in §1's diff; and
+`Type Suggestion` replaced by **`Schema Evidence`** (#35, Option A), with an `_Avoid_` line so
+the retired term still resolves. **`Person` was deliberately declined** — nothing ever lands
+*in* it, and the two subjects that leak *out* are one contestable corpus label and one
+coin-flip.
+
+**Status of the ratification itself, stated plainly.** These changes were applied and
+**self-stamped by the implementing session** — the "ratified 2026-07-27" stamps in this file and
+in the status table above are that session's own marks, not a countersignature. **Owner
+ratification is not recorded as a separate artifact**; there is no independent sign-off to point
+to. What is true is that the wording is in `CONTEXT.md` and shipping. Whether the domain owner
+has endorsed it is simply not evidenced here, and should not be read out of the stamps.
